@@ -1,0 +1,7 @@
+{
+  "spec": "test/**/*.ts",
+  "require": ["ts-node/register/transpile-only", "tsconfig-paths/register"],
+  "extensions": ["ts"],
+  "recursive": true,
+  "timeout": 220000
+}
