@@ -205,7 +205,7 @@ export class FirestoreServer {
       const request = call.request;
       let parent = request.parent || '';
       const structuredQuery = request.structured_query || {};
-      const from = structuredQuery.from || [];
+      const from = structuredQuery.from;
 
       // Normalize parent path: replace (default) with default
       parent = parent.replace('/databases/(default)/', '/databases/default/');
@@ -216,14 +216,23 @@ export class FirestoreServer {
       const databaseId = parts[3] || 'default';
 
       // Get collection ID from the query
+      // The from field can be an array of CollectionSelector objects
       let collectionId = '';
-      if (from.length > 0 && from[0].collection_id) {
-        collectionId = from[0].collection_id;
+      if (from) {
+        if (Array.isArray(from) && from.length > 0) {
+          const firstFrom = from[0];
+          if (firstFrom && firstFrom.collection_id) {
+            collectionId = firstFrom.collection_id;
+          }
+        } else if (from.collection_id) {
+          // Handle case where from is a single object
+          collectionId = from.collection_id;
+        }
       }
 
       // eslint-disable-next-line no-console
       console.log(
-        `[gRPC] RunQuery request: parent=${parent}, collectionId=${collectionId}`,
+        `[gRPC] RunQuery request: parent=${parent}, collectionId=${collectionId || '(empty)'}`,
       );
 
       // Get documents from storage

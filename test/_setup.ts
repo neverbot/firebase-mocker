@@ -186,26 +186,35 @@ describe('Firebase Mocker Basic Connection Test', () => {
         console.error('[TEST] Uncaught exception:', error);
       });
 
+      let timeoutId: NodeJS.Timeout | null = null;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          console.log('[TEST] Connection timeout - no response from emulator');
+          console.log(
+            '[TEST] This suggests Firebase Admin SDK is not attempting to connect',
+          );
+          reject(new Error('Connection timeout - emulator not responding'));
+        }, 5000);
+      });
+
       const _snapshot = await Promise.race([
         testCollection.get().catch((error) => {
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
           console.error('[TEST] Collection.get() error:', error);
           console.error('[TEST] Error code:', error.code);
           console.error('[TEST] Error message:', error.message);
           console.error('[TEST] Error details:', error);
           throw error;
         }),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => {
-            console.log(
-              '[TEST] Connection timeout - no response from emulator',
-            );
-            console.log(
-              '[TEST] This suggests Firebase Admin SDK is not attempting to connect',
-            );
-            reject(new Error('Connection timeout - emulator not responding'));
-          }, 5000),
-        ),
+        timeoutPromise,
       ]);
+
+      // Clear timeout if we got here successfully
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
 
       // If we get here, connection was successful
       // The snapshot might be empty, which is fine
