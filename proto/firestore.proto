@@ -25,6 +25,12 @@ service Firestore {
 
   // Deletes a document.
   rpc DeleteDocument(DeleteDocumentRequest) returns (Empty);
+
+  // Commits a transaction, writing all the mutations in the transaction.
+  rpc Commit(CommitRequest) returns (CommitResponse);
+
+  // Gets multiple documents.
+  rpc BatchGetDocuments(BatchGetDocumentsRequest) returns (stream BatchGetDocumentsResponse);
 }
 
 // The request for Firestore.GetDocument.
@@ -303,4 +309,73 @@ enum NullValue {
 
 // Empty message (simplified version of google.protobuf.Empty)
 message Empty {
+}
+
+// The request for Firestore.Commit.
+message CommitRequest {
+  // Required. The database name.
+  string database = 1;
+  
+  // The writes to apply.
+  repeated Write writes = 2;
+}
+
+// A write on a document.
+message Write {
+  // The operation to execute.
+  oneof operation {
+    // A document to write.
+    Document update = 1;
+    
+    // A document name to delete.
+    string delete = 3;
+  }
+  
+  // The fields to update in this write.
+  // This field can be set only when the operation is `update`.
+  DocumentMask update_mask = 2;
+}
+
+// A set of field paths on a document.
+message DocumentMask {
+  // The list of field paths in the mask.
+  repeated string field_paths = 1;
+}
+
+// The response for Firestore.Commit.
+message CommitResponse {
+  // The result of applying the writes.
+  // This i-th write result corresponds to the i-th write in the request.
+  repeated WriteResult write_results = 1;
+  
+  // The time at which the commit occurred. Any read with an equal or greater
+  // `read_time` is guaranteed to see the effects of the commit.
+  Timestamp commit_time = 2;
+}
+
+// The result of applying a write.
+message WriteResult {
+  // The last update time of the document after applying the write.
+  Timestamp update_time = 1;
+}
+
+// The request for Firestore.BatchGetDocuments.
+message BatchGetDocumentsRequest {
+  // Required. The database name.
+  string database = 1;
+  
+  // The names of the documents to retrieve.
+  repeated string documents = 2;
+}
+
+// The response for Firestore.BatchGetDocuments.
+message BatchGetDocumentsResponse {
+  // A single result.
+  oneof result {
+    // A document that was requested.
+    Document found = 1;
+    
+    // A document name that was requested but does not exist.
+    string missing = 2;
+  }
 }

@@ -167,3 +167,14 @@ export function buildDocumentPath(
 ): string {
   return `projects/${projectId}/databases/${databaseId}/documents/${collectionId}/${docId}`;
 }
+
+/**
+ * Convert Date to gRPC Timestamp format
+ */
+export function toTimestamp(date: Date): { seconds: number; nanos: number } {
+  const ms = date.getTime();
+  return {
+    seconds: Math.floor(ms / 1000),
+    nanos: (ms % 1000) * 1000000,
+  };
+}

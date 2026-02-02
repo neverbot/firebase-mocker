@@ -164,8 +164,6 @@ describe('Firebase Mocker Basic Connection Test', () => {
   });
 
   it('should connect Firebase Admin SDK to our emulator', async function () {
-    this.timeout(10000); // Longer timeout to see what happens
-
     console.log('[TEST] Testing Firebase Admin SDK connection...');
 
     const db = getFirestore();

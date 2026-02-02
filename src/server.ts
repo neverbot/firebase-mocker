@@ -7,12 +7,13 @@ import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import { FirestoreStorage } from './firestore-storage';
 import { getLogger } from './logger';
-import { ServerConfig } from './types';
+import { FirestoreDocument, FirestoreValue, ServerConfig } from './types';
 import {
   toFirestoreDocument,
   fromFirestoreDocument,
   buildDocumentPath,
   generateDocumentId,
+  toTimestamp,
 } from './utils';
 
 export class FirestoreServer {
@@ -448,6 +449,282 @@ export class FirestoreServer {
   }
 
   /**
+   * Handle Commit gRPC call
+   * This is used by Firebase Admin SDK for write operations (set, add, update, delete)
+   */
+  private handleCommit(
+    call: grpc.ServerUnaryCall<any, any>,
+    callback: grpc.sendUnaryData<any>,
+  ): void {
+    try {
+      const request = call.request;
+      const database = request.database || '';
+      const writes = request.writes || [];
+
+      this.logger.log(
+        'grpc',
+        `Commit request: database=${database}, writes=${writes.length}`,
+      );
+
+      // Parse database path like "projects/{project}/databases/{db}"
+      const parts = database.split('/');
+      const projectIndex = parts.indexOf('projects');
+      const dbIndex = parts.indexOf('databases');
+
+      if (
+        projectIndex === -1 ||
+        dbIndex === -1 ||
+        projectIndex + 1 >= parts.length ||
+        dbIndex + 1 >= parts.length
+      ) {
+        this.logger.log(
+          'grpc',
+          `Commit response: ERROR - Invalid database path`,
+        );
+        callback({
+          code: grpc.status.INVALID_ARGUMENT,
+          message: `Invalid database path: ${database}`,
+        });
+        return;
+      }
+
+      const projectId = parts[projectIndex + 1];
+      let databaseId = parts[dbIndex + 1];
+
+      // Normalize database ID
+      if (databaseId === '(default)') {
+        databaseId = 'default';
+      }
+
+      const writeResults: any[] = [];
+      const now = new Date();
+      // Use the same timestamp format as RunQuery (inline format)
+      const timestamp = {
+        seconds: Math.floor(now.getTime() / 1000),
+        nanos: (now.getTime() % 1000) * 1000000,
+      };
+
+      // Process each write
+      for (const write of writes) {
+        if (write.update) {
+          // Update or create document
+          // The document already comes in Firestore format from the client
+          const doc = write.update;
+          const docPath = doc.name || '';
+          const parsed = this.parseDocumentPath(docPath);
+
+          if (!parsed) {
+            this.logger.log(
+              'grpc',
+              `Commit response: ERROR - Invalid document path in write`,
+            );
+            callback({
+              code: grpc.status.INVALID_ARGUMENT,
+              message: `Invalid document path: ${docPath}`,
+            });
+            return;
+          }
+
+          // Check if document exists
+          const existingDoc = this.storage.getDocument(
+            parsed.projectId,
+            parsed.databaseId,
+            parsed.collectionId,
+            parsed.docId,
+          );
+
+          // Convert Firestore Document to our internal format
+          // doc.fields is already in FirestoreValue format from gRPC
+          // But we need to convert it to our internal FirestoreDocument format
+          // The fields come as a map<string, Value> from gRPC
+          const fields: Record<string, FirestoreValue> = {};
+          if (doc.fields) {
+            Object.keys(doc.fields).forEach((key) => {
+              fields[key] = doc.fields[key] as FirestoreValue;
+            });
+          }
+
+          const document: FirestoreDocument = {
+            name: docPath,
+            fields,
+            createTime: existingDoc?.createTime || new Date().toISOString(),
+            updateTime: new Date().toISOString(),
+          };
+
+          this.storage.setDocument(
+            parsed.projectId,
+            parsed.databaseId,
+            parsed.collectionId,
+            parsed.docId,
+            document,
+          );
+
+          writeResults.push({
+            update_time: timestamp,
+          });
+        } else if (write.delete) {
+          // Delete document
+          const docPath = write.delete;
+          const parsed = this.parseDocumentPath(docPath);
+
+          if (!parsed) {
+            this.logger.log(
+              'grpc',
+              `Commit response: ERROR - Invalid document path in delete`,
+            );
+            callback({
+              code: grpc.status.INVALID_ARGUMENT,
+              message: `Invalid document path: ${docPath}`,
+            });
+            return;
+          }
+
+          this.storage.deleteDocument(
+            parsed.projectId,
+            parsed.databaseId,
+            parsed.collectionId,
+            parsed.docId,
+          );
+
+          writeResults.push({
+            update_time: timestamp,
+          });
+        }
+      }
+
+      this.logger.log(
+        'grpc',
+        `Commit response: SUCCESS - Processed ${writes.length} writes`,
+      );
+
+      callback(null, {
+        commit_time: timestamp,
+        write_results: writeResults,
+      });
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error('grpc', `Commit error: ${errorMessage}`);
+      callback({
+        code: grpc.status.INTERNAL,
+        message: errorMessage,
+      });
+    }
+  }
+
+  /**
+   * Handle BatchGetDocuments gRPC call
+   * This is used by Firebase Admin SDK to get multiple documents efficiently
+   */
+  private handleBatchGetDocuments(
+    call: grpc.ServerWritableStream<any, any>,
+  ): void {
+    try {
+      const request = call.request;
+      const database = request.database || '';
+      const documents = request.documents || [];
+
+      this.logger.log(
+        'grpc',
+        `BatchGetDocuments request: database=${database}, documents=${documents.length}`,
+      );
+
+      // Parse database path like "projects/{project}/databases/{db}"
+      const parts = database.split('/');
+      const projectIndex = parts.indexOf('projects');
+      const dbIndex = parts.indexOf('databases');
+
+      if (
+        projectIndex === -1 ||
+        dbIndex === -1 ||
+        projectIndex + 1 >= parts.length ||
+        dbIndex + 1 >= parts.length
+      ) {
+        this.logger.log(
+          'grpc',
+          `BatchGetDocuments response: ERROR - Invalid database path`,
+        );
+        const error: grpc.ServiceError = {
+          code: grpc.status.INVALID_ARGUMENT,
+          message: `Invalid database path: ${database}`,
+          name: 'InvalidArgument',
+          details: `Invalid database path: ${database}`,
+          metadata: new grpc.Metadata(),
+        };
+        call.destroy(error);
+        return;
+      }
+
+      const projectId = parts[projectIndex + 1];
+      let databaseId = parts[dbIndex + 1];
+
+      // Normalize database ID
+      if (databaseId === '(default)') {
+        databaseId = 'default';
+      }
+
+      // Process each document request
+      for (const docPath of documents) {
+        const parsed = this.parseDocumentPath(docPath);
+
+        if (!parsed) {
+          this.logger.log(
+            'grpc',
+            `BatchGetDocuments response: MISSING - Invalid document path: ${docPath}`,
+          );
+          call.write({
+            missing: docPath,
+          });
+          continue;
+        }
+
+        const document = this.storage.getDocument(
+          parsed.projectId,
+          parsed.databaseId,
+          parsed.collectionId,
+          parsed.docId,
+        );
+
+        if (document) {
+          this.logger.log(
+            'grpc',
+            `BatchGetDocuments response: FOUND - Document: ${docPath}`,
+          );
+          call.write({
+            found: document,
+          });
+        } else {
+          this.logger.log(
+            'grpc',
+            `BatchGetDocuments response: MISSING - Document not found: ${docPath}`,
+          );
+          call.write({
+            missing: docPath,
+          });
+        }
+      }
+
+      this.logger.log(
+        'grpc',
+        `BatchGetDocuments response: SUCCESS - Processed ${documents.length} documents`,
+      );
+      call.end();
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error('grpc', `BatchGetDocuments error: ${errorMessage}`);
+      const serviceError: grpc.ServiceError = {
+        code: grpc.status.INTERNAL,
+        message: errorMessage,
+        name: 'InternalError',
+        details: errorMessage,
+        metadata: new grpc.Metadata(),
+      };
+      call.destroy(serviceError);
+    }
+  }
+
+  /**
    * Handle DeleteDocument gRPC call
    */
   private handleDeleteDocument(
@@ -520,6 +797,8 @@ export class FirestoreServer {
           CreateDocument: this.handleCreateDocument.bind(this),
           UpdateDocument: this.handleUpdateDocument.bind(this),
           DeleteDocument: this.handleDeleteDocument.bind(this),
+          Commit: this.handleCommit.bind(this),
+          BatchGetDocuments: this.handleBatchGetDocuments.bind(this),
         };
 
         // Load proto file
@@ -595,7 +874,7 @@ export class FirestoreServer {
       const promises: Promise<void>[] = [];
 
       if (this.grpcServer) {
-        this.logger.log('grpc', 'Stopping server...');
+        this.logger.log('server', 'Stopping server...');
         this.grpcServer.forceShutdown();
         this.grpcServer = undefined;
         this.logger.log('server', 'Firestore gRPC emulator server stopped');
