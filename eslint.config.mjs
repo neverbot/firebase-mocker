@@ -77,18 +77,6 @@ export default tseslint.config(
     rules: {
       // Import plugin rules
       'import/no-unresolved': 'error',
-      // Require file extensions in imports
-      // For TypeScript: allow no extension (TypeScript resolves automatically)
-      'import/extensions': [
-        'error',
-        'ignorePackages',
-        {
-          js: 'always',
-          jsx: 'always',
-          ts: 'never', // Allow no extension for TypeScript imports
-          tsx: 'never',
-        },
-      ],
       'import/order': [
         'warn',
         {
@@ -193,20 +181,8 @@ export default tseslint.config(
       'import/extensions': ['.js', '.jsx', '.ts', '.tsx'],
     },
     rules: {
-      // Import plugin rules (require extensions for tests)
+      // Import plugin rules
       'import/no-unresolved': 'error',
-      // Require file extensions in imports
-      // For TypeScript: allow no extension (TypeScript resolves automatically)
-      'import/extensions': [
-        'error',
-        'ignorePackages',
-        {
-          js: 'always',
-          jsx: 'always',
-          ts: 'never', // Allow no extension for TypeScript imports
-          tsx: 'never',
-        },
-      ],
       'import/no-duplicates': 'warn',
       
       // TypeScript-specific rules      
