@@ -1,12 +1,9 @@
 /**
  * Configuration class for firebase-mocker
- * Reads configuration from .env file and provides centralized access
+ * Reads configuration from config/*.yml files using 'config' package
  */
 
-import dotenv from 'dotenv';
-
-// Load environment variables from .env file
-dotenv.config();
+import config from 'config';
 
 /**
  * Default configuration values
@@ -25,19 +22,20 @@ export interface AppConfig {
 }
 
 /**
- * Configuration class that reads from .env file using dotenv
+ * Configuration class that reads from config/*.yml files using 'config' package
  */
 export class Config {
   private static instance: Config;
-  private readonly config: AppConfig;
+  private readonly appConfig: AppConfig;
 
   private constructor() {
-    // Read from environment variables loaded by dotenv from .env file
-    const port = this.getNumberConfig('PORT', DEFAULT_PORT);
-    const host = this.getStringConfig('HOST', DEFAULT_HOST);
-    const projectId = this.getStringConfig('PROJECT_ID', DEFAULT_PROJECT_ID);
+    // Read from config package (reads from config/*.yml files based on NODE_ENV)
+    // Priority: environment variables > config files > defaults
+    const port = this.getNumberConfig('port', DEFAULT_PORT);
+    const host = this.getStringConfig('host', DEFAULT_HOST);
+    const projectId = this.getStringConfig('projectId', DEFAULT_PROJECT_ID);
 
-    this.config = {
+    this.appConfig = {
       port,
       host,
       projectId,
@@ -55,37 +53,76 @@ export class Config {
   }
 
   /**
+   * Convert camelCase or dot notation to UPPER_SNAKE_CASE
+   * Examples: "verboseGrpcLogs" -> "VERBOSE_GRPC_LOGS"
+   *           "logs.verboseGrpcLogs" -> "LOGS_VERBOSE_GRPC_LOGS"
+   */
+  private toEnvKey(key: string): string {
+    // Replace dots with underscores, then convert camelCase to SNAKE_CASE
+    return key
+      .replace(/\./g, '_')
+      .replace(/([A-Z])/g, '_$1')
+      .toUpperCase();
+  }
+
+  /**
    * Get string configuration value
-   * Reads from process.env (loaded by dotenv) or returns defaultValue
+   * Priority: process.env > config package > defaultValue
    */
   private getStringConfig(key: string, defaultValue: string): string {
-    if (process.env[key]) {
-      return process.env[key];
+    // First try environment variable (uppercase, with underscores)
+    const envKey = this.toEnvKey(key);
+    if (process.env[envKey]) {
+      return process.env[envKey];
     }
+
+    // Then try config package
+    try {
+      if (config.has(key)) {
+        return config.get<string>(key);
+      }
+    } catch {
+      // Ignore if key doesn't exist in config
+    }
+
     return defaultValue;
   }
 
   /**
    * Get number configuration value
-   * Reads from process.env (loaded by dotenv) or returns defaultValue
+   * Priority: process.env > config package > defaultValue
    */
   private getNumberConfig(key: string, defaultValue: number): number {
-    if (process.env[key]) {
-      const parsed = parseInt(process.env[key], 10);
+    // First try environment variable (uppercase, with underscores)
+    const envKey = this.toEnvKey(key);
+    if (process.env[envKey]) {
+      const parsed = parseInt(process.env[envKey], 10);
       if (!isNaN(parsed)) {
         return parsed;
       }
     }
+
+    // Then try config package
+    try {
+      if (config.has(key)) {
+        return config.get<number>(key);
+      }
+    } catch {
+      // Ignore if key doesn't exist in config
+    }
+
     return defaultValue;
   }
 
   /**
    * Get boolean configuration value
-   * Reads from process.env (loaded by dotenv) or returns defaultValue
+   * Priority: process.env > config package > defaultValue
    */
   private getBooleanConfig(key: string, defaultValue: boolean): boolean {
-    if (process.env[key]) {
-      const value = process.env[key]?.toLowerCase();
+    // First try environment variable (uppercase, with underscores)
+    const envKey = this.toEnvKey(key);
+    if (process.env[envKey]) {
+      const value = process.env[envKey]?.toLowerCase();
       if (value === 'true' || value === '1' || value === 'yes') {
         return true;
       }
@@ -93,6 +130,16 @@ export class Config {
         return false;
       }
     }
+
+    // Then try config package
+    try {
+      if (config.has(key)) {
+        return config.get<boolean>(key);
+      }
+    } catch {
+      // Ignore if key doesn't exist in config
+    }
+
     return defaultValue;
   }
 
@@ -100,28 +147,28 @@ export class Config {
    * Get port configuration
    */
   public getPort(): number {
-    return this.config.port;
+    return this.appConfig.port;
   }
 
   /**
    * Get host configuration
    */
   public getHost(): string {
-    return this.config.host;
+    return this.appConfig.host;
   }
 
   /**
    * Get project ID configuration
    */
   public getProjectId(): string {
-    return this.config.projectId;
+    return this.appConfig.projectId;
   }
 
   /**
    * Get full configuration object
    */
   public getConfig(): Readonly<AppConfig> {
-    return { ...this.config };
+    return { ...this.appConfig };
   }
 
   /**
@@ -133,9 +180,9 @@ export class Config {
     projectId: string;
   } {
     return {
-      port: this.config.port,
-      host: this.config.host,
-      projectId: this.config.projectId,
+      port: this.appConfig.port,
+      host: this.appConfig.host,
+      projectId: this.appConfig.projectId,
     };
   }
 
@@ -143,7 +190,7 @@ export class Config {
    * Get verbose gRPC logs configuration
    */
   public getVerboseGrpcLogs(): boolean {
-    return this.getBooleanConfig('VERBOSE_GRPC_LOGS', false);
+    return this.getBooleanConfig('logs.verboseGrpcLogs', false);
   }
 }
 

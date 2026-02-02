@@ -1,0 +1,14 @@
+# Firestore Emulator Server Configuration (Default)
+
+# Server host
+host: localhost
+
+# Server port
+port: 3333
+
+# Default project ID
+projectId: demo-project
+
+# Logs configuration
+logs:
+  verboseGrpcLogs: false
