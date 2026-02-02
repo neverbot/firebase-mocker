@@ -5,6 +5,7 @@
 import * as path from 'path';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
+import { getConfig } from './config';
 import { FirestoreStorage } from './firestore-storage';
 import { ServerConfig } from './types';
 import {
@@ -18,10 +19,22 @@ export class FirestoreServer {
   private readonly storage: FirestoreStorage;
   private readonly config: ServerConfig;
   private grpcServer?: grpc.Server;
+  private readonly verboseLogs: boolean;
 
   constructor(config: ServerConfig) {
     this.config = config;
     this.storage = new FirestoreStorage();
+    this.verboseLogs = getConfig().getVerboseGrpcLogs();
+  }
+
+  /**
+   * Log gRPC message if verbose logging is enabled
+   */
+  private logGrpc(message: string): void {
+    if (this.verboseLogs) {
+      // eslint-disable-next-line no-console
+      console.log(message);
+    }
   }
 
   /**
@@ -68,13 +81,11 @@ export class FirestoreServer {
       const request = call.request;
       const path = request.name || '';
 
-      // eslint-disable-next-line no-console
-      console.log(`[gRPC] GetDocument request: path=${path}`);
+      this.logGrpc(`[gRPC] GetDocument request: path=${path}`);
 
       const parsed = this.parseDocumentPath(path);
       if (!parsed) {
-        // eslint-disable-next-line no-console
-        console.log(
+        this.logGrpc(
           `[gRPC] GetDocument response: ERROR - Invalid document path`,
         );
         callback({
@@ -92,8 +103,7 @@ export class FirestoreServer {
       );
 
       if (!document) {
-        // eslint-disable-next-line no-console
-        console.log(
+        this.logGrpc(
           `[gRPC] GetDocument response: NOT_FOUND - Document not found`,
         );
         callback({
@@ -103,8 +113,7 @@ export class FirestoreServer {
         return;
       }
 
-      // eslint-disable-next-line no-console
-      console.log(`[gRPC] GetDocument response: SUCCESS - Document found`);
+      this.logGrpc(`[gRPC] GetDocument response: SUCCESS - Document found`);
       callback(null, document);
     } catch (error: unknown) {
       const errorMessage =
@@ -128,8 +137,7 @@ export class FirestoreServer {
       const parent = request.parent || '';
       const collectionId = request.collectionId || '';
 
-      // eslint-disable-next-line no-console
-      console.log(
+      this.logGrpc(
         `[gRPC] ListDocuments request: parent=${parent}, collectionId=${collectionId}`,
       );
 
@@ -146,8 +154,7 @@ export class FirestoreServer {
         projectIndex + 1 >= parts.length ||
         dbIndex + 1 >= parts.length
       ) {
-        // eslint-disable-next-line no-console
-        console.log(
+        this.logGrpc(
           `[gRPC] ListDocuments response: ERROR - Invalid parent path`,
         );
         callback({
@@ -161,8 +168,7 @@ export class FirestoreServer {
       const databaseId = parts[dbIndex + 1];
 
       if (!collectionId) {
-        // eslint-disable-next-line no-console
-        console.log(
+        this.logGrpc(
           `[gRPC] ListDocuments response: ERROR - collectionId required`,
         );
         callback({
@@ -178,8 +184,7 @@ export class FirestoreServer {
         collectionId,
       );
 
-      // eslint-disable-next-line no-console
-      console.log(
+      this.logGrpc(
         `[gRPC] ListDocuments response: SUCCESS - Found ${documents.length} documents`,
       );
       callback(null, {
@@ -230,8 +235,7 @@ export class FirestoreServer {
         }
       }
 
-      // eslint-disable-next-line no-console
-      console.log(
+      this.logGrpc(
         `[gRPC] RunQuery request: parent=${parent}, collectionId=${collectionId || '(empty)'}`,
       );
 
@@ -257,8 +261,7 @@ export class FirestoreServer {
           skipped_results: 0,
         };
         call.write(emptyResponse);
-        // eslint-disable-next-line no-console
-        console.log(
+        this.logGrpc(
           `[gRPC] RunQuery response: SUCCESS - Empty collection (0 documents)`,
         );
       } else {
@@ -284,8 +287,7 @@ export class FirestoreServer {
 
           call.write(grpcDocument);
         });
-        // eslint-disable-next-line no-console
-        console.log(
+        this.logGrpc(
           `[gRPC] RunQuery response: SUCCESS - Streamed ${documents.length} documents`,
         );
       }
@@ -315,8 +317,7 @@ export class FirestoreServer {
       const collectionId = request.collectionId || '';
       const docId = request.documentId || 'auto-generated';
 
-      // eslint-disable-next-line no-console
-      console.log(
+      this.logGrpc(
         `[gRPC] CreateDocument request: parent=${parent}, collectionId=${collectionId}, documentId=${docId}`,
       );
 
@@ -331,8 +332,7 @@ export class FirestoreServer {
         projectIndex + 1 >= parts.length ||
         dbIndex + 1 >= parts.length
       ) {
-        // eslint-disable-next-line no-console
-        console.log(
+        this.logGrpc(
           `[gRPC] CreateDocument response: ERROR - Invalid parent path`,
         );
         callback({
@@ -366,8 +366,7 @@ export class FirestoreServer {
         document,
       );
 
-      // eslint-disable-next-line no-console
-      console.log(
+      this.logGrpc(
         `[gRPC] CreateDocument response: SUCCESS - Created document at ${documentPath}`,
       );
       callback(null, document);
@@ -392,13 +391,11 @@ export class FirestoreServer {
       const request = call.request;
       const path = request.document?.name || '';
 
-      // eslint-disable-next-line no-console
-      console.log(`[gRPC] UpdateDocument request: path=${path}`);
+      this.logGrpc(`[gRPC] UpdateDocument request: path=${path}`);
 
       const parsed = this.parseDocumentPath(path);
       if (!parsed) {
-        // eslint-disable-next-line no-console
-        console.log(
+        this.logGrpc(
           `[gRPC] UpdateDocument response: ERROR - Invalid document path`,
         );
         callback({
@@ -433,8 +430,7 @@ export class FirestoreServer {
         document,
       );
 
-      // eslint-disable-next-line no-console
-      console.log(
+      this.logGrpc(
         `[gRPC] UpdateDocument response: SUCCESS - ${existingDoc ? 'Updated' : 'Created'} document at ${path}`,
       );
       callback(null, document);
@@ -459,13 +455,11 @@ export class FirestoreServer {
       const request = call.request;
       const path = request.name || '';
 
-      // eslint-disable-next-line no-console
-      console.log(`[gRPC] DeleteDocument request: path=${path}`);
+      this.logGrpc(`[gRPC] DeleteDocument request: path=${path}`);
 
       const parsed = this.parseDocumentPath(path);
       if (!parsed) {
-        // eslint-disable-next-line no-console
-        console.log(
+        this.logGrpc(
           `[gRPC] DeleteDocument response: ERROR - Invalid document path`,
         );
         callback({
@@ -483,8 +477,7 @@ export class FirestoreServer {
       );
 
       if (!deleted) {
-        // eslint-disable-next-line no-console
-        console.log(
+        this.logGrpc(
           `[gRPC] DeleteDocument response: NOT_FOUND - Document not found`,
         );
         callback({
@@ -494,8 +487,9 @@ export class FirestoreServer {
         return;
       }
 
-      // eslint-disable-next-line no-console
-      console.log(`[gRPC] DeleteDocument response: SUCCESS - Document deleted`);
+      this.logGrpc(
+        `[gRPC] DeleteDocument response: SUCCESS - Document deleted`,
+      );
       callback(null, {});
     } catch (error: unknown) {
       const errorMessage =
@@ -593,8 +587,7 @@ export class FirestoreServer {
       const promises: Promise<void>[] = [];
 
       if (this.grpcServer) {
-        // eslint-disable-next-line no-console
-        console.log('[gRPC] Stopping server...');
+        this.logGrpc('[gRPC] Stopping server...');
         this.grpcServer.forceShutdown();
         this.grpcServer = undefined;
         // eslint-disable-next-line no-console

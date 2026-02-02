@@ -3,16 +3,10 @@
  * Provides a mock Firestore instance that can be used for testing
  */
 
-// Load environment variables from .env file
-import dotenv from 'dotenv';
-dotenv.config();
+import { getConfig } from './config';
 import { FirestoreStorage } from './firestore-storage';
 import { FirestoreServer } from './server';
 import { ServerConfig } from './types';
-
-const DEFAULT_PORT = 3333;
-const DEFAULT_HOST = 'localhost';
-const DEFAULT_PROJECT_ID = 'demo-project';
 
 export class MockFirestore {
   private server?: FirestoreServer;
@@ -29,15 +23,11 @@ export class MockFirestore {
    */
   public async start(): Promise<void> {
     if (!this.server) {
+      const appConfig = getConfig();
       const serverConfig: ServerConfig = {
-        port:
-          this.config?.port ??
-          parseInt(process.env.PORT || String(DEFAULT_PORT), 10),
-        host: this.config?.host ?? process.env.HOST ?? DEFAULT_HOST,
-        projectId:
-          this.config?.projectId ??
-          process.env.PROJECT_ID ??
-          DEFAULT_PROJECT_ID,
+        port: this.config?.port ?? appConfig.getPort(),
+        host: this.config?.host ?? appConfig.getHost(),
+        projectId: this.config?.projectId ?? appConfig.getProjectId(),
       };
       this.server = new FirestoreServer(serverConfig);
       await this.server.start();

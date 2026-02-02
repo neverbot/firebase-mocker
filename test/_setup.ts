@@ -3,7 +3,6 @@
  * This file initializes the Firebase mocker and sets up the testing environment
  */
 
-import * as net from 'net';
 import * as grpc from '@grpc/grpc-js';
 import * as admin from 'firebase-admin';
 import { firebaseMocker, FirestoreServer } from '../src/index';
@@ -12,7 +11,6 @@ import { firebaseMocker, FirestoreServer } from '../src/index';
 let firebaseApp: admin.app.App | undefined = undefined;
 let firestoreServer: FirestoreServer | null = null;
 let grpcServer: grpc.Server | null = null;
-const tcpServer: net.Server | null = null;
 
 /**
  * Setup function to initialize the Firebase mocker and Firebase Admin SDK
@@ -178,7 +176,7 @@ describe('Firebase Mocker Basic Connection Test', () => {
     // If connection fails, this will throw an error or timeout
     try {
       // Add error listeners to catch any connection errors
-      process.on('unhandledRejection', (reason, promise) => {
+      process.on('unhandledRejection', (reason, _promise) => {
         console.error('[TEST] Unhandled rejection:', reason);
       });
 
