@@ -16,7 +16,7 @@
     "target": "ES2023",
     "sourceMap": true,
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": "./",
     "baseUrl": "./",
     "incremental": false,
     "skipLibCheck": true,
@@ -30,17 +30,16 @@
     "noUnusedParameters": false,
     "downlevelIteration": true,
     "noEmit": false,
+    "allowImportingTsExtensions": true,
   },
   "include": [
-    "src/**/*.ts"
+    "src/**/*.ts",
+    "test/**/*.ts"
   ],
   "exclude": [
     "node_modules",
     "dist",
-    "test",
     "coverage",
-    "**/*.spec.ts",
-    "**/*.test.ts",
     "**/*.temp.ts",
     "**/*.backup.ts"
   ]

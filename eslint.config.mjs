@@ -78,17 +78,15 @@ export default tseslint.config(
       // Import plugin rules
       'import/no-unresolved': 'error',
       // Require file extensions in imports
-      // For TypeScript: use .js extension (TypeScript standard practice)
+      // For TypeScript: use .ts extension
       'import/extensions': [
         'error',
         'ignorePackages',
         {
           js: 'always',
           jsx: 'always',
-          // TypeScript files should use .js extension in imports
-          // This is the TypeScript standard: import from './file.js' even for .ts files
-          ts: 'never', // Don't require .ts extension, we use .js instead
-          tsx: 'never',
+          ts: 'always', // Require .ts extension in imports
+          tsx: 'always',
         },
       ],
       'import/order': [
@@ -171,7 +169,7 @@ export default tseslint.config(
       },
       sourceType: 'module',
       parserOptions: {
-        project: './test/tsconfig.json',
+        project: './tsconfig.json',
         tsconfigRootDir: import.meta.dirname,
         ecmaVersion: 2023,
       },
@@ -184,7 +182,7 @@ export default tseslint.config(
       'import/resolver': {
         typescript: {
           alwaysTryTypes: true,
-          project: './tsconfig.test.json',
+          project: './tsconfig.json',
         },
         node: {
           extensions: ['.js', '.jsx', '.ts', '.tsx'],
@@ -198,17 +196,15 @@ export default tseslint.config(
       // Import plugin rules (require extensions for tests)
       'import/no-unresolved': 'error',
       // Require file extensions in imports
-      // For TypeScript: use .js extension (TypeScript standard practice)
+      // For TypeScript: use .ts extension
       'import/extensions': [
         'error',
         'ignorePackages',
         {
           js: 'always',
           jsx: 'always',
-          // TypeScript files should use .js extension in imports
-          // This is the TypeScript standard: import from './file.js' even for .ts files
-          ts: 'never', // Don't require .ts extension, we use .js instead
-          tsx: 'never',
+          ts: 'always', // Require .ts extension in imports
+          tsx: 'always',
         },
       ],
       'import/no-duplicates': 'warn',

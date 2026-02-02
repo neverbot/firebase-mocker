@@ -70,17 +70,41 @@ npm start
 
 ## Configuration
 
-The server can be configured via environment variables:
+The server can be configured via environment variables in a `.env` file or directly as environment variables.
 
-- `PORT`: Server port (default: 3333)
-- `HOST`: Server host (default: localhost)
-- `PROJECT_ID`: Default project ID (default: demo-project)
+### Using .env file (Recommended)
 
-Example:
+Create a `.env` file in the project root:
+
+```env
+# Server host (default: localhost)
+HOST=localhost
+
+# Server port (default: 3333)
+PORT=3333
+
+# Default project ID (default: demo-project)
+PROJECT_ID=demo-project
+```
+
+You can copy `.env.example` as a template:
 
 ```bash
-PORT=9090 PROJECT_ID=my-project npm run dev
+cp .env.example .env
 ```
+
+### Using environment variables directly
+
+```bash
+PORT=9090 HOST=0.0.0.0 PROJECT_ID=my-project npm run dev
+```
+
+### Configuration priority
+
+1. Configuration passed programmatically (highest priority)
+2. Environment variables from `.env` file
+3. System environment variables
+4. Default values (lowest priority)
 
 ## Usage
 
