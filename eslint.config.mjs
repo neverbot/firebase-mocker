@@ -117,7 +117,6 @@ export default tseslint.config(
         argsIgnorePattern: '^_',
         varsIgnorePattern: '^_'
       }],
-      '@typescript-eslint/no-floating-promises': 'warn',
       '@typescript-eslint/prefer-optional-chain': 'off',
       '@typescript-eslint/prefer-readonly': 'warn',
       '@typescript-eslint/promise-function-async': 'warn',
@@ -183,7 +182,26 @@ export default tseslint.config(
     rules: {
       // Import plugin rules
       'import/no-unresolved': 'error',
+      'import/order': [
+        'warn',
+        {
+          groups: [
+            'builtin',
+            'external',
+            'internal',
+            'parent',
+            'sibling',
+            'index',
+          ],
+          'newlines-between': 'never',
+          alphabetize: {
+            order: 'asc',
+            caseInsensitive: true,
+          },
+        },
+      ],
       'import/no-duplicates': 'warn',
+      'import/no-unused-modules': 'warn',
       
       // TypeScript-specific rules      
       '@typescript-eslint/explicit-function-return-type': 'off',
