@@ -23,11 +23,11 @@ export class FirestoreStorage {
   }
 
   /**
-   * Get or create a database (default is '(default)')
+   * Get or create a database (default is 'default')
    */
   private getDatabase(
     projectId: string,
-    databaseId = '(default)',
+    databaseId = 'default',
   ): FirestoreDatabase {
     const project = this.getProject(projectId);
     if (!project[databaseId]) {

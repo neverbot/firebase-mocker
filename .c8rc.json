@@ -1,0 +1,18 @@
+{
+  "all": true,
+  "check-coverage": true,
+  "statements": 40,
+  "branches": 35,
+  "functions": 13,
+  "lines": 40,
+  "reporter": ["text", "json-summary"],
+  "reports-dir": "coverage",
+  "exclude": [
+    "test/**",
+    "**/*.d.ts",
+    "dist/**",
+    "coverage",
+    "node_modules",
+    "eslint.config.mjs"
+  ]
+}

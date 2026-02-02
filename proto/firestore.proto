@@ -1,0 +1,306 @@
+syntax = "proto3";
+
+package google.firestore.v1;
+
+option java_multiple_files = true;
+option java_outer_classname = "FirestoreProto";
+option java_package = "com.google.firestore.v1";
+
+// The Cloud Firestore service.
+service Firestore {
+  // Gets a single document.
+  rpc GetDocument(GetDocumentRequest) returns (Document);
+
+  // Lists documents.
+  rpc ListDocuments(ListDocumentsRequest) returns (ListDocumentsResponse);
+
+  // Runs a query.
+  rpc RunQuery(RunQueryRequest) returns (stream RunQueryResponse);
+
+  // Creates a new document.
+  rpc CreateDocument(CreateDocumentRequest) returns (Document);
+
+  // Updates or inserts a document.
+  rpc UpdateDocument(UpdateDocumentRequest) returns (Document);
+
+  // Deletes a document.
+  rpc DeleteDocument(DeleteDocumentRequest) returns (Empty);
+}
+
+// The request for Firestore.GetDocument.
+message GetDocumentRequest {
+  // Required. The resource name of the Document to get.
+  string name = 1;
+}
+
+// The request for Firestore.ListDocuments.
+message ListDocumentsRequest {
+  // Required. The parent resource name.
+  string parent = 1;
+  
+  // Required. The collection ID, relative to `parent`, to list.
+  string collection_id = 2;
+}
+
+// The response for Firestore.ListDocuments.
+message ListDocumentsResponse {
+  // The Documents found.
+  repeated Document documents = 1;
+}
+
+// The request for Firestore.RunQuery.
+message RunQueryRequest {
+  // Required. The parent resource name.
+  string parent = 1;
+  
+  // A structured query.
+  StructuredQuery structured_query = 2;
+}
+
+// The response for Firestore.RunQuery.
+message RunQueryResponse {
+  // A query result.
+  // Not all query results are returned in a single response.
+  // Stream results are returned in a series of responses.
+  Document document = 1;
+  
+  // The time at which the document was read.
+  Timestamp read_time = 2;
+  
+  // The number of results that have been skipped due to an offset between
+  // the last response and the current response.
+  int32 skipped_results = 3;
+}
+
+// A structured query.
+message StructuredQuery {
+  // The projection to return.
+  Projection select = 1;
+  
+  // The collections to query.
+  CollectionSelector from = 2;
+  
+  // The filter to apply.
+  Filter where = 3;
+  
+  // The order to apply to the query results.
+  repeated Order order_by = 4;
+  
+  // A starting point for the query results.
+  Cursor start_at = 7;
+  
+  // An end point for the query results.
+  Cursor end_at = 8;
+  
+  // The number of results to skip.
+  int32 offset = 6;
+  
+  // The maximum number of results to return.
+  int32 limit = 5;
+}
+
+// A selection of the collection's fields.
+message Projection {
+  // The fields to return.
+  repeated FieldReference fields = 1;
+}
+
+// A reference to a field, such as `max(messages.sub) or `messages.sub`.
+message FieldReference {
+  // The relative path of the document being referenced.
+  string field_path = 2;
+}
+
+// A selection of a collection, such as `messages as m1`.
+message CollectionSelector {
+  // The collection ID.
+  string collection_id = 2;
+  
+  // When false, selects only collections that are immediate children of
+  // the `parent` specified in the containing `RunQueryRequest`.
+  bool all_descendants = 3;
+}
+
+// A filter.
+message Filter {
+  oneof filter_type {
+    CompositeFilter composite_filter = 1;
+    FieldFilter field_filter = 2;
+    UnaryFilter unary_filter = 3;
+  }
+}
+
+// A filter with a single field.
+message FieldFilter {
+  // The field to filter by.
+  FieldReference field = 1;
+  
+  // The operator to filter by.
+  Operator op = 2;
+  
+  // The value to compare to.
+  Value value = 3;
+}
+
+// A filter that takes exactly one argument.
+message UnaryFilter {
+  // The unary operator to apply.
+  UnaryFilterOperator op = 1;
+  
+  // The argument to the filter.
+  FieldReference field = 2;
+}
+
+// A filter that combines multiple filters.
+message CompositeFilter {
+  // The operator for combining multiple filters.
+  CompositeFilterOperator op = 1;
+  
+  // The list of filters to combine.
+  repeated Filter filters = 2;
+}
+
+// A sort direction.
+enum Direction {
+  DIRECTION_UNSPECIFIED = 0;
+  ASCENDING = 1;
+  DESCENDING = 2;
+}
+
+// An order on a field.
+message Order {
+  // The field to order by.
+  FieldReference field = 1;
+  
+  // The direction to order by.
+  Direction direction = 2;
+}
+
+// A position in a query result set.
+message Cursor {
+  // The values that represent a position, in the order they appear in
+  // the order by clause of a query.
+  repeated Value values = 1;
+  
+  // If the position is just before or just after the given values, relative
+  // to the sort order defined by the query.
+  bool before = 2;
+}
+
+// A field filter operator.
+enum Operator {
+  OPERATOR_UNSPECIFIED = 0;
+  LESS_THAN = 1;
+  LESS_THAN_OR_EQUAL = 2;
+  GREATER_THAN = 3;
+  GREATER_THAN_OR_EQUAL = 4;
+  EQUAL = 5;
+  NOT_EQUAL = 6;
+  ARRAY_CONTAINS = 7;
+  IN = 8;
+  ARRAY_CONTAINS_ANY = 9;
+  NOT_IN = 10;
+}
+
+// A unary filter operator.
+enum UnaryFilterOperator {
+  OPERATOR_UNSPECIFIED = 0;
+  IS_NAN = 2;
+  IS_NULL = 3;
+  IS_NOT_NAN = 4;
+  IS_NOT_NULL = 5;
+}
+
+// A composite filter operator.
+enum CompositeFilterOperator {
+  OPERATOR_UNSPECIFIED = 0;
+  AND = 1;
+  OR = 2;
+}
+
+// The request for Firestore.CreateDocument.
+message CreateDocumentRequest {
+  // Required. The parent resource.
+  string parent = 1;
+  
+  // Required. The collection ID, relative to `parent`, to list.
+  string collection_id = 2;
+  
+  // The client-assigned document ID to use for this document.
+  string document_id = 3;
+  
+  // Required. The document to create.
+  Document document = 4;
+}
+
+// The request for Firestore.UpdateDocument.
+message UpdateDocumentRequest {
+  // Required. The updated document.
+  Document document = 1;
+}
+
+// The request for Firestore.DeleteDocument.
+message DeleteDocumentRequest {
+  // Required. The resource name of the Document to delete.
+  string name = 1;
+}
+
+// A Firestore document.
+message Document {
+  // The resource name of the document.
+  string name = 1;
+  
+  // The document's fields.
+  map<string, Value> fields = 2;
+  
+  // The time at which the document was created.
+  string create_time = 3;
+  
+  // The time at which the document was last changed.
+  string update_time = 4;
+}
+
+// A message that can hold any of the supported value types.
+message Value {
+  oneof value_type {
+    NullValue null_value = 11;
+    bool boolean_value = 1;
+    int64 integer_value = 2;
+    double double_value = 3;
+    string string_value = 17;
+    bytes bytes_value = 18;
+    Timestamp timestamp_value = 10;
+    MapValue map_value = 5;
+    ArrayValue array_value = 6;
+  }
+}
+
+// A map value.
+message MapValue {
+  // The map's fields.
+  map<string, Value> fields = 1;
+}
+
+// An array value.
+message ArrayValue {
+  // Values in the array.
+  repeated Value values = 1;
+}
+
+// A timestamp.
+message Timestamp {
+  // Represents seconds of UTC time since Unix epoch.
+  int64 seconds = 1;
+  
+  // Non-negative fractions of a second at nanosecond resolution.
+  int32 nanos = 2;
+}
+
+// A null value.
+enum NullValue {
+  NULL_VALUE = 0;
+}
+
+// Empty message (simplified version of google.protobuf.Empty)
+message Empty {
+}

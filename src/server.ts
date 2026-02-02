@@ -1,8 +1,10 @@
 /**
- * HTTP server that emulates Firestore REST API
+ * gRPC server that emulates Firestore API
  */
 
-import express, { Request, Response } from 'express';
+import * as path from 'path';
+import * as grpc from '@grpc/grpc-js';
+import * as protoLoader from '@grpc/proto-loader';
 import { FirestoreStorage } from './firestore-storage';
 import { ServerConfig } from './types';
 import {
@@ -13,149 +15,337 @@ import {
 } from './utils';
 
 export class FirestoreServer {
-  private readonly app: express.Application;
   private readonly storage: FirestoreStorage;
   private readonly config: ServerConfig;
-  private serverInstance?: ReturnType<express.Application['listen']>;
+  private grpcServer?: grpc.Server;
 
   constructor(config: ServerConfig) {
     this.config = config;
-    this.app = express();
     this.storage = new FirestoreStorage();
-    this.setupMiddleware();
-    this.setupRoutes();
   }
 
-  private setupMiddleware(): void {
-    this.app.use(express.json());
-    this.app.use((req, res, next) => {
-      // eslint-disable-next-line no-console
-      console.log(`${req.method} ${req.path}`);
-      next();
-    });
+  /**
+   * Parse document path like "projects/{project}/databases/{db}/documents/{collection}/{doc}"
+   */
+  private parseDocumentPath(path: string): {
+    projectId: string;
+    databaseId: string;
+    collectionId: string;
+    docId: string;
+  } | null {
+    const parts = path.split('/');
+    const projectIndex = parts.indexOf('projects');
+    const dbIndex = parts.indexOf('databases');
+    const docsIndex = parts.indexOf('documents');
+
+    if (
+      projectIndex === -1 ||
+      dbIndex === -1 ||
+      docsIndex === -1 ||
+      projectIndex + 1 >= parts.length ||
+      dbIndex + 1 >= parts.length ||
+      docsIndex + 1 >= parts.length
+    ) {
+      return null;
+    }
+
+    const projectId = parts[projectIndex + 1];
+    const databaseId = parts[dbIndex + 1];
+    const collectionId = parts[docsIndex + 1] || '';
+    const docId = parts[docsIndex + 2] || '';
+
+    return { projectId, databaseId, collectionId, docId };
   }
 
-  private setupRoutes(): void {
-    // Get a document
-    this.app.get(
-      '/v1/projects/:projectId/databases/:databaseId/documents/:collectionId/:docId',
-      this.getDocument.bind(this),
-    );
-
-    // List documents in a collection
-    this.app.get(
-      '/v1/projects/:projectId/databases/:databaseId/documents/:collectionId',
-      this.listDocuments.bind(this),
-    );
-
-    // Create a document with auto-generated ID
-    this.app.post(
-      '/v1/projects/:projectId/databases/:databaseId/documents/:collectionId',
-      this.createDocument.bind(this),
-    );
-
-    // Create or update a document (PATCH)
-    this.app.patch(
-      '/v1/projects/:projectId/databases/:databaseId/documents/:collectionId/:docId',
-      this.updateDocument.bind(this),
-    );
-
-    // Delete a document
-    this.app.delete(
-      '/v1/projects/:projectId/databases/:databaseId/documents/:collectionId/:docId',
-      this.deleteDocument.bind(this),
-    );
-
-    // Health check
-    this.app.get('/health', (req, res) => {
-      res.json({ status: 'ok' });
-    });
-  }
-
-  private getDocument(req: Request, res: Response): void {
+  /**
+   * Handle GetDocument gRPC call
+   */
+  private handleGetDocument(
+    call: grpc.ServerUnaryCall<any, any>,
+    callback: grpc.sendUnaryData<any>,
+  ): void {
     try {
-      const { projectId, databaseId, collectionId, docId } = req.params;
-      const document = this.storage.getDocument(
-        projectId,
-        databaseId,
-        collectionId,
-        docId,
-      );
+      const request = call.request;
+      const path = request.name || '';
 
-      if (!document) {
-        res.status(404).json({
-          error: {
-            code: 404,
-            message: `Document not found: ${collectionId}/${docId}`,
-            status: 'NOT_FOUND',
-          },
+      // eslint-disable-next-line no-console
+      console.log(`[gRPC] GetDocument request: path=${path}`);
+
+      const parsed = this.parseDocumentPath(path);
+      if (!parsed) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[gRPC] GetDocument response: ERROR - Invalid document path`,
+        );
+        callback({
+          code: grpc.status.INVALID_ARGUMENT,
+          message: `Invalid document path: ${path}`,
         });
         return;
       }
 
-      res.json(document);
+      const document = this.storage.getDocument(
+        parsed.projectId,
+        parsed.databaseId,
+        parsed.collectionId,
+        parsed.docId,
+      );
+
+      if (!document) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[gRPC] GetDocument response: NOT_FOUND - Document not found`,
+        );
+        callback({
+          code: grpc.status.NOT_FOUND,
+          message: `Document not found: ${path}`,
+        });
+        return;
+      }
+
+      // eslint-disable-next-line no-console
+      console.log(`[gRPC] GetDocument response: SUCCESS - Document found`);
+      callback(null, document);
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({
-        error: {
-          code: 500,
-          message: errorMessage,
-          status: 'INTERNAL_ERROR',
-        },
+      callback({
+        code: grpc.status.INTERNAL,
+        message: errorMessage,
       });
     }
   }
 
-  private listDocuments(req: Request, res: Response): void {
+  /**
+   * Handle ListDocuments gRPC call
+   */
+  private handleListDocuments(
+    call: grpc.ServerUnaryCall<any, any>,
+    callback: grpc.sendUnaryData<any>,
+  ): void {
     try {
-      const { projectId, databaseId, collectionId } = req.params;
+      const request = call.request;
+      const parent = request.parent || '';
+      const collectionId = request.collectionId || '';
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `[gRPC] ListDocuments request: parent=${parent}, collectionId=${collectionId}`,
+      );
+
+      // Parse parent path like "projects/{project}/databases/{db}/documents"
+      const parts = parent.split('/');
+      const projectIndex = parts.indexOf('projects');
+      const dbIndex = parts.indexOf('databases');
+      const docsIndex = parts.indexOf('documents');
+
+      if (
+        projectIndex === -1 ||
+        dbIndex === -1 ||
+        docsIndex === -1 ||
+        projectIndex + 1 >= parts.length ||
+        dbIndex + 1 >= parts.length
+      ) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[gRPC] ListDocuments response: ERROR - Invalid parent path`,
+        );
+        callback({
+          code: grpc.status.INVALID_ARGUMENT,
+          message: `Invalid parent path: ${parent}`,
+        });
+        return;
+      }
+
+      const projectId = parts[projectIndex + 1];
+      const databaseId = parts[dbIndex + 1];
+
+      if (!collectionId) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[gRPC] ListDocuments response: ERROR - collectionId required`,
+        );
+        callback({
+          code: grpc.status.INVALID_ARGUMENT,
+          message: 'collectionId is required',
+        });
+        return;
+      }
+
       const documents = this.storage.listDocuments(
         projectId,
         databaseId,
         collectionId,
       );
 
-      res.json({
+      // eslint-disable-next-line no-console
+      console.log(
+        `[gRPC] ListDocuments response: SUCCESS - Found ${documents.length} documents`,
+      );
+      callback(null, {
         documents,
       });
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({
-        error: {
-          code: 500,
-          message: errorMessage,
-          status: 'INTERNAL_ERROR',
-        },
+      callback({
+        code: grpc.status.INTERNAL,
+        message: errorMessage,
       });
     }
   }
 
-  private createDocument(req: Request, res: Response): void {
+  /**
+   * Handle RunQuery gRPC call
+   * This is the method used by collection.get() in Firebase Admin SDK
+   * RunQuery is a server streaming RPC (client sends request, server streams responses)
+   */
+  private handleRunQuery(call: grpc.ServerWritableStream<any, any>): void {
     try {
-      const { projectId, databaseId, collectionId } = req.params;
-      const docId = generateDocumentId();
+      const request = call.request;
+      let parent = request.parent || '';
+      const structuredQuery = request.structured_query || {};
+      const from = structuredQuery.from || [];
+
+      // Normalize parent path: replace (default) with default
+      parent = parent.replace('/databases/(default)/', '/databases/default/');
+
+      // Parse parent path to extract projectId, databaseId
+      const parts = parent.split('/');
+      const projectId = parts[1] || 'test-project';
+      const databaseId = parts[3] || 'default';
+
+      // Get collection ID from the query
+      let collectionId = '';
+      if (from.length > 0 && from[0].collection_id) {
+        collectionId = from[0].collection_id;
+      }
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `[gRPC] RunQuery request: parent=${parent}, collectionId=${collectionId}`,
+      );
+
+      // Get documents from storage
+      const documents = this.storage.listDocuments(
+        projectId,
+        databaseId,
+        collectionId,
+      );
+
+      // Convert current time to Timestamp format (seconds and nanos)
+      const now = new Date();
+      const timestamp = {
+        seconds: Math.floor(now.getTime() / 1000),
+        nanos: (now.getTime() % 1000) * 1000000,
+      };
+
+      // Send responses as a stream
+      if (documents.length === 0) {
+        // For empty collections, send a response with readTime but no document
+        const emptyResponse = {
+          read_time: timestamp,
+          skipped_results: 0,
+        };
+        call.write(emptyResponse);
+        // eslint-disable-next-line no-console
+        console.log(
+          `[gRPC] RunQuery response: SUCCESS - Empty collection (0 documents)`,
+        );
+      } else {
+        // Send each document as a stream response
+        documents.forEach((doc) => {
+          const documentPath = buildDocumentPath(
+            projectId,
+            databaseId,
+            collectionId,
+            doc.name.split('/').pop() || '',
+          );
+
+          const grpcDocument = {
+            document: {
+              name: documentPath,
+              fields: fromFirestoreDocument(doc),
+              create_time: doc.createTime,
+              update_time: doc.updateTime,
+            },
+            read_time: timestamp,
+            skipped_results: 0,
+          };
+
+          call.write(grpcDocument);
+        });
+        // eslint-disable-next-line no-console
+        console.log(
+          `[gRPC] RunQuery response: SUCCESS - Streamed ${documents.length} documents`,
+        );
+      }
+
+      // End the stream
+      call.end();
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      call.destroy({
+        code: grpc.status.INTERNAL,
+        message: errorMessage,
+      } as grpc.ServiceError);
+    }
+  }
+
+  /**
+   * Handle CreateDocument gRPC call
+   */
+  private handleCreateDocument(
+    call: grpc.ServerUnaryCall<any, any>,
+    callback: grpc.sendUnaryData<any>,
+  ): void {
+    try {
+      const request = call.request;
+      const parent = request.parent || '';
+      const collectionId = request.collectionId || '';
+      const docId = request.documentId || 'auto-generated';
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `[gRPC] CreateDocument request: parent=${parent}, collectionId=${collectionId}, documentId=${docId}`,
+      );
+
+      // Parse parent path
+      const parts = parent.split('/');
+      const projectIndex = parts.indexOf('projects');
+      const dbIndex = parts.indexOf('databases');
+
+      if (
+        projectIndex === -1 ||
+        dbIndex === -1 ||
+        projectIndex + 1 >= parts.length ||
+        dbIndex + 1 >= parts.length
+      ) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[gRPC] CreateDocument response: ERROR - Invalid parent path`,
+        );
+        callback({
+          code: grpc.status.INVALID_ARGUMENT,
+          message: `Invalid parent path: ${parent}`,
+        });
+        return;
+      }
+
+      const projectId = parts[projectIndex + 1];
+      const databaseId = parts[dbIndex + 1];
+      const finalDocId = request.documentId || generateDocumentId();
+
       const documentPath = buildDocumentPath(
         projectId,
         databaseId,
         collectionId,
-        docId,
+        finalDocId,
       );
 
-      // Extract fields from request body
-      // The request body should have a 'fields' property with Firestore values
-      // For simplicity, we'll also accept a plain object and convert it
-      let fields: Record<string, any>;
-      if (req.body.fields) {
-        // Already in Firestore format
-        fields = req.body.fields;
-      } else {
-        // Plain object - convert to Firestore format
-        fields = req.body;
-      }
-
-      // Convert plain object to Firestore document format
+      // Convert request document to Firestore format
+      const fields = request.document?.fields || {};
       const document = toFirestoreDocument(documentPath, fields);
       document.name = documentPath;
 
@@ -163,144 +353,147 @@ export class FirestoreServer {
         projectId,
         databaseId,
         collectionId,
-        docId,
+        finalDocId,
         document,
       );
 
-      res.status(201).json(document);
+      // eslint-disable-next-line no-console
+      console.log(
+        `[gRPC] CreateDocument response: SUCCESS - Created document at ${documentPath}`,
+      );
+      callback(null, document);
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({
-        error: {
-          code: 500,
-          message: errorMessage,
-          status: 'INTERNAL_ERROR',
-        },
+      callback({
+        code: grpc.status.INTERNAL,
+        message: errorMessage,
       });
     }
   }
 
-  private updateDocument(req: Request, res: Response): void {
+  /**
+   * Handle UpdateDocument gRPC call
+   */
+  private handleUpdateDocument(
+    call: grpc.ServerUnaryCall<any, any>,
+    callback: grpc.sendUnaryData<any>,
+  ): void {
     try {
-      const { projectId, databaseId, collectionId, docId } = req.params;
-      const documentPath = buildDocumentPath(
-        projectId,
-        databaseId,
-        collectionId,
-        docId,
-      );
+      const request = call.request;
+      const path = request.document?.name || '';
 
-      // Get existing document or create new one
-      const existingDoc = this.storage.getDocument(
-        projectId,
-        databaseId,
-        collectionId,
-        docId,
-      );
+      // eslint-disable-next-line no-console
+      console.log(`[gRPC] UpdateDocument request: path=${path}`);
 
-      // Extract fields from request body
-      let fields: Record<string, any>;
-      if (req.body.fields) {
-        fields = req.body.fields;
-      } else {
-        fields = req.body;
-      }
-
-      if (existingDoc) {
-        // Merge with existing document
-        const existingData = fromFirestoreDocument(existingDoc);
-        const updateData = Object.keys(fields).reduce(
-          (acc, key) => {
-            const value = fields[key];
-            if (
-              typeof value === 'object' &&
-              value !== null &&
-              'mapValue' in value
-            ) {
-              acc[key] = fromFirestoreDocument({
-                name: '',
-                fields: value.mapValue.fields,
-              });
-            } else {
-              acc[key] = value;
-            }
-            return acc;
-          },
-          {} as Record<string, any>,
+      const parsed = this.parseDocumentPath(path);
+      if (!parsed) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[gRPC] UpdateDocument response: ERROR - Invalid document path`,
         );
-
-        const mergedData = { ...existingData, ...updateData };
-        const updatedDoc = toFirestoreDocument(documentPath, mergedData);
-        updatedDoc.name = documentPath;
-        updatedDoc.createTime = existingDoc.createTime; // Preserve create time
-        updatedDoc.updateTime = new Date().toISOString();
-
-        this.storage.setDocument(
-          projectId,
-          databaseId,
-          collectionId,
-          docId,
-          updatedDoc,
-        );
-        res.json(updatedDoc);
-      } else {
-        // Create new document
-        const newDoc = toFirestoreDocument(documentPath, fields);
-        newDoc.name = documentPath;
-        this.storage.setDocument(
-          projectId,
-          databaseId,
-          collectionId,
-          docId,
-          newDoc,
-        );
-        res.status(201).json(newDoc);
-      }
-    } catch (error: unknown) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({
-        error: {
-          code: 500,
-          message: errorMessage,
-          status: 'INTERNAL_ERROR',
-        },
-      });
-    }
-  }
-
-  private deleteDocument(req: Request, res: Response): void {
-    try {
-      const { projectId, databaseId, collectionId, docId } = req.params;
-      const deleted = this.storage.deleteDocument(
-        projectId,
-        databaseId,
-        collectionId,
-        docId,
-      );
-
-      if (!deleted) {
-        res.status(404).json({
-          error: {
-            code: 404,
-            message: `Document not found: ${collectionId}/${docId}`,
-            status: 'NOT_FOUND',
-          },
+        callback({
+          code: grpc.status.INVALID_ARGUMENT,
+          message: `Invalid document path: ${path}`,
         });
         return;
       }
 
-      res.status(200).json({});
+      // Get existing document or create new one
+      const existingDoc = this.storage.getDocument(
+        parsed.projectId,
+        parsed.databaseId,
+        parsed.collectionId,
+        parsed.docId,
+      );
+
+      const fields = request.document?.fields || {};
+      const document = toFirestoreDocument(path, fields);
+      document.name = path;
+
+      if (existingDoc) {
+        document.createTime = existingDoc.createTime;
+      }
+      document.updateTime = new Date().toISOString();
+
+      this.storage.setDocument(
+        parsed.projectId,
+        parsed.databaseId,
+        parsed.collectionId,
+        parsed.docId,
+        document,
+      );
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `[gRPC] UpdateDocument response: SUCCESS - ${existingDoc ? 'Updated' : 'Created'} document at ${path}`,
+      );
+      callback(null, document);
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({
-        error: {
-          code: 500,
-          message: errorMessage,
-          status: 'INTERNAL_ERROR',
-        },
+      callback({
+        code: grpc.status.INTERNAL,
+        message: errorMessage,
+      });
+    }
+  }
+
+  /**
+   * Handle DeleteDocument gRPC call
+   */
+  private handleDeleteDocument(
+    call: grpc.ServerUnaryCall<any, any>,
+    callback: grpc.sendUnaryData<any>,
+  ): void {
+    try {
+      const request = call.request;
+      const path = request.name || '';
+
+      // eslint-disable-next-line no-console
+      console.log(`[gRPC] DeleteDocument request: path=${path}`);
+
+      const parsed = this.parseDocumentPath(path);
+      if (!parsed) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[gRPC] DeleteDocument response: ERROR - Invalid document path`,
+        );
+        callback({
+          code: grpc.status.INVALID_ARGUMENT,
+          message: `Invalid document path: ${path}`,
+        });
+        return;
+      }
+
+      const deleted = this.storage.deleteDocument(
+        parsed.projectId,
+        parsed.databaseId,
+        parsed.collectionId,
+        parsed.docId,
+      );
+
+      if (!deleted) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[gRPC] DeleteDocument response: NOT_FOUND - Document not found`,
+        );
+        callback({
+          code: grpc.status.NOT_FOUND,
+          message: `Document not found: ${path}`,
+        });
+        return;
+      }
+
+      // eslint-disable-next-line no-console
+      console.log(`[gRPC] DeleteDocument response: SUCCESS - Document deleted`);
+      callback(null, {});
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      callback({
+        code: grpc.status.INTERNAL,
+        message: errorMessage,
       });
     }
   }
@@ -308,23 +501,78 @@ export class FirestoreServer {
   public async start(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        this.serverInstance = this.app.listen(
-          this.config.port,
-          this.config.host,
-          () => {
+        this.grpcServer = new grpc.Server();
+
+        // Create service implementation
+        const serviceImplementation: any = {
+          GetDocument: this.handleGetDocument.bind(this),
+          ListDocuments: this.handleListDocuments.bind(this),
+          RunQuery: this.handleRunQuery.bind(this),
+          CreateDocument: this.handleCreateDocument.bind(this),
+          UpdateDocument: this.handleUpdateDocument.bind(this),
+          DeleteDocument: this.handleDeleteDocument.bind(this),
+        };
+
+        // Load proto file
+        const protoPath = path.join(__dirname, '../proto/firestore.proto');
+
+        const packageDefinition = protoLoader.loadSync(protoPath, {
+          keepCase: true,
+          longs: String,
+          enums: String,
+          defaults: true,
+          oneofs: true,
+        });
+
+        const firestoreProto = grpc.loadPackageDefinition(
+          packageDefinition,
+        ) as any;
+
+        // Get the Firestore service
+        const firestoreService =
+          firestoreProto.google?.firestore?.v1?.Firestore;
+
+        if (!firestoreService) {
+          reject(
+            new Error('Failed to load Firestore service from proto definition'),
+          );
+          return;
+        }
+
+        // Add service to server using the loaded proto definition
+        this.grpcServer.addService(
+          firestoreService.service,
+          serviceImplementation,
+        );
+
+        // Bind server to address
+        // Use IPv6 [::] to support both IPv4 and IPv6 connections
+        const bindHost =
+          this.config.host === 'localhost' ? '[::]' : this.config.host;
+        const isIPv6 = bindHost === '[::]';
+        const address = `${bindHost}:${this.config.port}`;
+        this.grpcServer.bindAsync(
+          address,
+          grpc.ServerCredentials.createInsecure(),
+          (error, port) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+
+            // DeprecationWarning: Calling start() is no longer necessary. It can be safely omitted.
+            // this.grpcServer!.start();
+
             // eslint-disable-next-line no-console
             console.log(
-              `Firestore emulator server running on http://${this.config.host}:${this.config.port}`,
+              `Firestore gRPC emulator server running on ${this.config.host}:${port}${isIPv6 ? ' (IPv6 [::], accepts both IPv4 and IPv6 connections)' : ''}`,
             );
             // eslint-disable-next-line no-console
             console.log(`Project ID: ${this.config.projectId || 'default'}`);
+
             resolve();
           },
         );
-
-        this.serverInstance.on('error', (error) => {
-          reject(error instanceof Error ? error : new Error(String(error)));
-        });
       } catch (error) {
         reject(error instanceof Error ? error : new Error(String(error)));
       }
@@ -332,21 +580,22 @@ export class FirestoreServer {
   }
 
   public async stop(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (!this.serverInstance) {
-        resolve();
-        return;
+    return new Promise((resolve) => {
+      const promises: Promise<void>[] = [];
+
+      if (this.grpcServer) {
+        // eslint-disable-next-line no-console
+        console.log('[gRPC] Stopping server...');
+        this.grpcServer.forceShutdown();
+        this.grpcServer = undefined;
+        // eslint-disable-next-line no-console
+        console.log('Firestore gRPC emulator server stopped');
       }
 
-      this.serverInstance.close((error) => {
-        if (error) {
-          reject(error);
-        } else {
-          // eslint-disable-next-line no-console
-          console.log('Firestore emulator server stopped');
-          resolve();
-        }
-      });
+      Promise.all(promises).then(() => resolve());
+      if (promises.length === 0) {
+        resolve();
+      }
     });
   }
 

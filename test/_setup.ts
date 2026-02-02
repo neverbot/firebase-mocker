@@ -3,18 +3,22 @@
  * This file initializes the Firebase mocker and sets up the testing environment
  */
 
+import * as net from 'net';
+import * as grpc from '@grpc/grpc-js';
 import * as admin from 'firebase-admin';
 import { firebaseMocker, FirestoreServer } from '../src/index';
 
 // Initialize Firebase Admin SDK (will use emulator if FIRESTORE_EMULATOR_HOST is set)
 let firebaseApp: admin.app.App | undefined = undefined;
 let firestoreServer: FirestoreServer | null = null;
+let grpcServer: grpc.Server | null = null;
+const tcpServer: net.Server | null = null;
 
 /**
  * Setup function to initialize the Firebase mocker and Firebase Admin SDK
  */
 export async function setup(): Promise<void> {
-  // Start the Firestore mock server
+  // Start the Firestore mock server (HTTP REST)
   // This will automatically set FIRESTORE_EMULATOR_HOST
   firestoreServer = await firebaseMocker.startFirestoreServer({
     port: 3333,
@@ -22,25 +26,59 @@ export async function setup(): Promise<void> {
     projectId: 'test-project',
   });
 
+  // The gRPC server is already started by firestoreServer on port 3333
+  // So we don't need an additional gRPC server here
+  // The main server should be detecting connections
+
   // Initialize Firebase Admin SDK
-  // The FIRESTORE_EMULATOR_HOST should be set automatically by startFirestoreServer
+  // IMPORTANT: FIRESTORE_EMULATOR_HOST must be set BEFORE initializing the app
+  // Firebase Admin SDK checks this variable at initialization time
   if (firebaseApp === undefined) {
-    firebaseApp = admin.initializeApp({
-      projectId: 'test-project',
-    });
+    const emulatorHost =
+      process.env.FIRESTORE_EMULATOR_HOST || 'localhost:3333';
+
+    // Verify the environment variable is set
+    if (!process.env.FIRESTORE_EMULATOR_HOST) {
+      process.env.FIRESTORE_EMULATOR_HOST = emulatorHost;
+    }
+
+    // Initialize Firebase Admin with explicit project ID
+    // Note: We don't need credentials when using emulator
+    firebaseApp = admin.initializeApp(
+      {
+        projectId: 'test-project',
+      },
+      'test-app', // Use a unique app name to avoid conflicts
+    );
+
+    // Get Firestore instance
+    // Firebase Admin SDK should automatically detect FIRESTORE_EMULATOR_HOST
+    const firestore = admin.firestore(firebaseApp);
+
+    // Log the configuration to debug
+    console.log(`[SETUP] Firestore instance created`);
+
+    // Force client creation by creating a collection reference
+    // The client is created lazily, so we need to trigger it
+    const testCollection = firestore.collection('_setup_test');
+    console.log(
+      `[SETUP] Created test collection reference to force client initialization: ${testCollection.path}`,
+    );
   }
 
   console.log('Firebase mocker setup complete');
-
-  console.log(
-    `FIRESTORE_EMULATOR_HOST: ${process.env.FIRESTORE_EMULATOR_HOST}`,
-  );
 }
 
 /**
  * Teardown function to clean up resources
  */
 export async function teardown(): Promise<void> {
+  if (grpcServer) {
+    grpcServer.forceShutdown();
+    grpcServer = null;
+    console.log('[TEARDOWN] gRPC server stopped');
+  }
+
   if (firestoreServer) {
     await firestoreServer.stop();
     firestoreServer = null;
@@ -64,7 +102,7 @@ export function getFirestore(): admin.firestore.Firestore {
   if (!firebaseApp) {
     throw new Error('Firebase app not initialized. Call setup() first.');
   }
-  return admin.firestore();
+  return admin.firestore(firebaseApp);
 }
 
 /**
@@ -116,6 +154,74 @@ export async function testSetup(): Promise<void> {
     await teardown();
   }
 }
+
+// Mocha test suite
+describe('Firebase Mocker Basic Connection Test', () => {
+  before(async function () {
+    await setup();
+  });
+
+  after(async function () {
+    await teardown();
+  });
+
+  it('should connect Firebase Admin SDK to our emulator', async function () {
+    this.timeout(10000); // Longer timeout to see what happens
+
+    console.log('[TEST] Testing Firebase Admin SDK connection...');
+
+    const db = getFirestore();
+    const testCollection = db.collection('_connection_test');
+
+    // Try a simple operation: list documents (empty collection is OK)
+    // This will attempt to connect to our emulator
+    // If connection fails, this will throw an error or timeout
+    try {
+      // Add error listeners to catch any connection errors
+      process.on('unhandledRejection', (reason, promise) => {
+        console.error('[TEST] Unhandled rejection:', reason);
+      });
+
+      process.on('uncaughtException', (error) => {
+        console.error('[TEST] Uncaught exception:', error);
+      });
+
+      const _snapshot = await Promise.race([
+        testCollection.get().catch((error) => {
+          console.error('[TEST] Collection.get() error:', error);
+          console.error('[TEST] Error code:', error.code);
+          console.error('[TEST] Error message:', error.message);
+          console.error('[TEST] Error details:', error);
+          throw error;
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => {
+            console.log(
+              '[TEST] Connection timeout - no response from emulator',
+            );
+            console.log(
+              '[TEST] This suggests Firebase Admin SDK is not attempting to connect',
+            );
+            reject(new Error('Connection timeout - emulator not responding'));
+          }, 5000),
+        ),
+      ]);
+
+      // If we get here, connection was successful
+      // The snapshot might be empty, which is fine
+      console.log(
+        '✓ Connection successful: Firebase Admin SDK connected to our emulator',
+      );
+    } catch (error) {
+      // If connection fails, this test should fail
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown connection error';
+      console.error('[TEST] Connection error:', errorMessage);
+      console.error('[TEST] Error details:', error);
+      throw new Error(`Failed to connect to emulator: ${errorMessage}.`);
+    }
+  });
+});
 
 // If this file is run directly, execute the test
 if (require.main === module) {
