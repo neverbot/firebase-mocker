@@ -4,7 +4,7 @@
  */
 
 import * as admin from 'firebase-admin';
-import { firebaseMocker, FirestoreServer } from '../src/index.ts';
+import { firebaseMocker, FirestoreServer } from '../src/index';
 
 // Initialize Firebase Admin SDK (will use emulator if FIRESTORE_EMULATOR_HOST is set)
 let firebaseApp: admin.app.App | undefined = undefined;

@@ -7,7 +7,7 @@ import {
   FirestoreCollection,
   FirestoreDatabase,
   FirestoreProject,
-} from './types.ts';
+} from './types';
 
 export class FirestoreStorage {
   private readonly projects = new Map<string, FirestoreProject>();

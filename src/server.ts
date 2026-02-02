@@ -3,14 +3,14 @@
  */
 
 import express, { Request, Response } from 'express';
-import { FirestoreStorage } from './firestore-storage.ts';
-import { ServerConfig } from './types.ts';
+import { FirestoreStorage } from './firestore-storage';
+import { ServerConfig } from './types';
 import {
   toFirestoreDocument,
   fromFirestoreDocument,
   buildDocumentPath,
   generateDocumentId,
-} from './utils.ts';
+} from './utils';
 
 export class FirestoreServer {
   private readonly app: express.Application;

@@ -3,11 +3,11 @@
  */
 
 import dotenv from 'dotenv';
-import { MockAuthentication } from './auth.ts';
-import { MockFirestore } from './firestore.ts';
-import { FirestoreServer } from './server.ts';
-import { MockStorage } from './storage.ts';
-import { ServerConfig } from './types.ts';
+import { MockAuthentication } from './auth';
+import { MockFirestore } from './firestore';
+import { FirestoreServer } from './server';
+import { MockStorage } from './storage';
+import { ServerConfig } from './types';
 
 const DEFAULT_PORT = 3333;
 const DEFAULT_HOST = 'localhost';
@@ -77,9 +77,9 @@ export const firebaseMocker = {
 };
 
 // Export classes for advanced usage
-export { MockFirestore } from './firestore.ts';
-export { MockAuthentication } from './auth.ts';
-export { MockStorage } from './storage.ts';
-export { FirestoreServer } from './server.ts';
-export { FirestoreStorage } from './firestore-storage.ts';
-export * from './types.ts';
+export { MockFirestore } from './firestore';
+export { MockAuthentication } from './auth';
+export { MockStorage } from './storage';
+export { FirestoreServer } from './server';
+export { FirestoreStorage } from './firestore-storage';
+export * from './types';

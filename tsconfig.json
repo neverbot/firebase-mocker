@@ -30,11 +30,9 @@
     "noUnusedParameters": false,
     "downlevelIteration": true,
     "noEmit": false,
-    "allowImportingTsExtensions": true,
   },
   "include": [
     "src/**/*.ts",
-    "test/**/*.ts"
   ],
   "exclude": [
     "node_modules",

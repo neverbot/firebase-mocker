@@ -6,9 +6,9 @@
 // Load environment variables from .env file
 import dotenv from 'dotenv';
 dotenv.config();
-import { FirestoreStorage } from './firestore-storage.ts';
-import { FirestoreServer } from './server.ts';
-import { ServerConfig } from './types.ts';
+import { FirestoreStorage } from './firestore-storage';
+import { FirestoreServer } from './server';
+import { ServerConfig } from './types';
 
 const DEFAULT_PORT = 3333;
 const DEFAULT_HOST = 'localhost';
