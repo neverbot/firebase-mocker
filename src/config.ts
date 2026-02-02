@@ -3,7 +3,6 @@
  * Reads configuration from .env file and provides centralized access
  */
 
-import config from 'config';
 import dotenv from 'dotenv';
 
 // Load environment variables from .env file
@@ -26,17 +25,14 @@ export interface AppConfig {
 }
 
 /**
- * Configuration class that reads from .env file using 'config' package
+ * Configuration class that reads from .env file using dotenv
  */
 export class Config {
   private static instance: Config;
   private readonly config: AppConfig;
 
   private constructor() {
-    // Read from config package (which can read from environment variables)
-    // config package reads from NODE_CONFIG_* environment variables
-    // or from config files, but we'll use environment variables directly
-    // since we're loading .env with dotenv
+    // Read from environment variables loaded by dotenv from .env file
     const port = this.getNumberConfig('PORT', DEFAULT_PORT);
     const host = this.getStringConfig('HOST', DEFAULT_HOST);
     const projectId = this.getStringConfig('PROJECT_ID', DEFAULT_PROJECT_ID);
@@ -60,57 +56,34 @@ export class Config {
 
   /**
    * Get string configuration value
-   * Priority: process.env > config package > defaultValue
+   * Reads from process.env (loaded by dotenv) or returns defaultValue
    */
   private getStringConfig(key: string, defaultValue: string): string {
-    // First try process.env (loaded by dotenv)
     if (process.env[key]) {
       return process.env[key];
     }
-
-    // Then try config package
-    try {
-      if (config.has(key.toLowerCase())) {
-        return config.get<string>(key.toLowerCase());
-      }
-    } catch {
-      // Ignore if key doesn't exist in config
-    }
-
     return defaultValue;
   }
 
   /**
    * Get number configuration value
-   * Priority: process.env > config package > defaultValue
+   * Reads from process.env (loaded by dotenv) or returns defaultValue
    */
   private getNumberConfig(key: string, defaultValue: number): number {
-    // First try process.env (loaded by dotenv)
     if (process.env[key]) {
       const parsed = parseInt(process.env[key], 10);
       if (!isNaN(parsed)) {
         return parsed;
       }
     }
-
-    // Then try config package
-    try {
-      if (config.has(key.toLowerCase())) {
-        return config.get<number>(key.toLowerCase());
-      }
-    } catch {
-      // Ignore if key doesn't exist in config
-    }
-
     return defaultValue;
   }
 
   /**
    * Get boolean configuration value
-   * Priority: process.env > config package > defaultValue
+   * Reads from process.env (loaded by dotenv) or returns defaultValue
    */
   private getBooleanConfig(key: string, defaultValue: boolean): boolean {
-    // First try process.env (loaded by dotenv)
     if (process.env[key]) {
       const value = process.env[key]?.toLowerCase();
       if (value === 'true' || value === '1' || value === 'yes') {
@@ -120,16 +93,6 @@ export class Config {
         return false;
       }
     }
-
-    // Then try config package
-    try {
-      if (config.has(key.toLowerCase())) {
-        return config.get<boolean>(key.toLowerCase());
-      }
-    } catch {
-      // Ignore if key doesn't exist in config
-    }
-
     return defaultValue;
   }
 

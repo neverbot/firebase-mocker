@@ -5,8 +5,8 @@
 import * as path from 'path';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
-import { getConfig } from './config';
 import { FirestoreStorage } from './firestore-storage';
+import { getLogger } from './logger';
 import { ServerConfig } from './types';
 import {
   toFirestoreDocument,
@@ -19,22 +19,11 @@ export class FirestoreServer {
   private readonly storage: FirestoreStorage;
   private readonly config: ServerConfig;
   private grpcServer?: grpc.Server;
-  private readonly verboseLogs: boolean;
+  private readonly logger = getLogger();
 
   constructor(config: ServerConfig) {
     this.config = config;
     this.storage = new FirestoreStorage();
-    this.verboseLogs = getConfig().getVerboseGrpcLogs();
-  }
-
-  /**
-   * Log gRPC message if verbose logging is enabled
-   */
-  private logGrpc(message: string): void {
-    if (this.verboseLogs) {
-      // eslint-disable-next-line no-console
-      console.log(message);
-    }
   }
 
   /**
@@ -81,12 +70,13 @@ export class FirestoreServer {
       const request = call.request;
       const path = request.name || '';
 
-      this.logGrpc(`[gRPC] GetDocument request: path=${path}`);
+      this.logger.log('grpc', `GetDocument request: path=${path}`);
 
       const parsed = this.parseDocumentPath(path);
       if (!parsed) {
-        this.logGrpc(
-          `[gRPC] GetDocument response: ERROR - Invalid document path`,
+        this.logger.log(
+          'grpc',
+          `GetDocument response: ERROR - Invalid document path`,
         );
         callback({
           code: grpc.status.INVALID_ARGUMENT,
@@ -103,8 +93,9 @@ export class FirestoreServer {
       );
 
       if (!document) {
-        this.logGrpc(
-          `[gRPC] GetDocument response: NOT_FOUND - Document not found`,
+        this.logger.log(
+          'grpc',
+          `GetDocument response: NOT_FOUND - Document not found`,
         );
         callback({
           code: grpc.status.NOT_FOUND,
@@ -113,7 +104,7 @@ export class FirestoreServer {
         return;
       }
 
-      this.logGrpc(`[gRPC] GetDocument response: SUCCESS - Document found`);
+      this.logger.log('grpc', `GetDocument response: SUCCESS - Document found`);
       callback(null, document);
     } catch (error: unknown) {
       const errorMessage =
@@ -137,8 +128,9 @@ export class FirestoreServer {
       const parent = request.parent || '';
       const collectionId = request.collectionId || '';
 
-      this.logGrpc(
-        `[gRPC] ListDocuments request: parent=${parent}, collectionId=${collectionId}`,
+      this.logger.log(
+        'grpc',
+        `ListDocuments request: parent=${parent}, collectionId=${collectionId}`,
       );
 
       // Parse parent path like "projects/{project}/databases/{db}/documents"
@@ -154,8 +146,9 @@ export class FirestoreServer {
         projectIndex + 1 >= parts.length ||
         dbIndex + 1 >= parts.length
       ) {
-        this.logGrpc(
-          `[gRPC] ListDocuments response: ERROR - Invalid parent path`,
+        this.logger.log(
+          'grpc',
+          `ListDocuments response: ERROR - Invalid parent path`,
         );
         callback({
           code: grpc.status.INVALID_ARGUMENT,
@@ -168,8 +161,9 @@ export class FirestoreServer {
       const databaseId = parts[dbIndex + 1];
 
       if (!collectionId) {
-        this.logGrpc(
-          `[gRPC] ListDocuments response: ERROR - collectionId required`,
+        this.logger.log(
+          'grpc',
+          `ListDocuments response: ERROR - collectionId required`,
         );
         callback({
           code: grpc.status.INVALID_ARGUMENT,
@@ -184,8 +178,9 @@ export class FirestoreServer {
         collectionId,
       );
 
-      this.logGrpc(
-        `[gRPC] ListDocuments response: SUCCESS - Found ${documents.length} documents`,
+      this.logger.log(
+        'grpc',
+        `ListDocuments response: SUCCESS - Found ${documents.length} documents`,
       );
       callback(null, {
         documents,
@@ -235,8 +230,9 @@ export class FirestoreServer {
         }
       }
 
-      this.logGrpc(
-        `[gRPC] RunQuery request: parent=${parent}, collectionId=${collectionId || '(empty)'}`,
+      this.logger.log(
+        'grpc',
+        `RunQuery request: parent=${parent}, collectionId=${collectionId || '(empty)'}`,
       );
 
       // Get documents from storage
@@ -261,8 +257,9 @@ export class FirestoreServer {
           skipped_results: 0,
         };
         call.write(emptyResponse);
-        this.logGrpc(
-          `[gRPC] RunQuery response: SUCCESS - Empty collection (0 documents)`,
+        this.logger.log(
+          'grpc',
+          `RunQuery response: SUCCESS - Empty collection (0 documents)`,
         );
       } else {
         // Send each document as a stream response
@@ -287,8 +284,9 @@ export class FirestoreServer {
 
           call.write(grpcDocument);
         });
-        this.logGrpc(
-          `[gRPC] RunQuery response: SUCCESS - Streamed ${documents.length} documents`,
+        this.logger.log(
+          'grpc',
+          `RunQuery response: SUCCESS - Streamed ${documents.length} documents`,
         );
       }
 
@@ -317,8 +315,9 @@ export class FirestoreServer {
       const collectionId = request.collectionId || '';
       const docId = request.documentId || 'auto-generated';
 
-      this.logGrpc(
-        `[gRPC] CreateDocument request: parent=${parent}, collectionId=${collectionId}, documentId=${docId}`,
+      this.logger.log(
+        'grpc',
+        `CreateDocument request: parent=${parent}, collectionId=${collectionId}, documentId=${docId}`,
       );
 
       // Parse parent path
@@ -332,8 +331,9 @@ export class FirestoreServer {
         projectIndex + 1 >= parts.length ||
         dbIndex + 1 >= parts.length
       ) {
-        this.logGrpc(
-          `[gRPC] CreateDocument response: ERROR - Invalid parent path`,
+        this.logger.log(
+          'grpc',
+          `CreateDocument response: ERROR - Invalid parent path`,
         );
         callback({
           code: grpc.status.INVALID_ARGUMENT,
@@ -366,8 +366,9 @@ export class FirestoreServer {
         document,
       );
 
-      this.logGrpc(
-        `[gRPC] CreateDocument response: SUCCESS - Created document at ${documentPath}`,
+      this.logger.log(
+        'grpc',
+        `CreateDocument response: SUCCESS - Created document at ${documentPath}`,
       );
       callback(null, document);
     } catch (error: unknown) {
@@ -391,12 +392,13 @@ export class FirestoreServer {
       const request = call.request;
       const path = request.document?.name || '';
 
-      this.logGrpc(`[gRPC] UpdateDocument request: path=${path}`);
+      this.logger.log('grpc', `UpdateDocument request: path=${path}`);
 
       const parsed = this.parseDocumentPath(path);
       if (!parsed) {
-        this.logGrpc(
-          `[gRPC] UpdateDocument response: ERROR - Invalid document path`,
+        this.logger.log(
+          'grpc',
+          `UpdateDocument response: ERROR - Invalid document path`,
         );
         callback({
           code: grpc.status.INVALID_ARGUMENT,
@@ -430,8 +432,9 @@ export class FirestoreServer {
         document,
       );
 
-      this.logGrpc(
-        `[gRPC] UpdateDocument response: SUCCESS - ${existingDoc ? 'Updated' : 'Created'} document at ${path}`,
+      this.logger.log(
+        'grpc',
+        `UpdateDocument response: SUCCESS - ${existingDoc ? 'Updated' : 'Created'} document at ${path}`,
       );
       callback(null, document);
     } catch (error: unknown) {
@@ -455,12 +458,13 @@ export class FirestoreServer {
       const request = call.request;
       const path = request.name || '';
 
-      this.logGrpc(`[gRPC] DeleteDocument request: path=${path}`);
+      this.logger.log('grpc', `DeleteDocument request: path=${path}`);
 
       const parsed = this.parseDocumentPath(path);
       if (!parsed) {
-        this.logGrpc(
-          `[gRPC] DeleteDocument response: ERROR - Invalid document path`,
+        this.logger.log(
+          'grpc',
+          `DeleteDocument response: ERROR - Invalid document path`,
         );
         callback({
           code: grpc.status.INVALID_ARGUMENT,
@@ -477,8 +481,9 @@ export class FirestoreServer {
       );
 
       if (!deleted) {
-        this.logGrpc(
-          `[gRPC] DeleteDocument response: NOT_FOUND - Document not found`,
+        this.logger.log(
+          'grpc',
+          `DeleteDocument response: NOT_FOUND - Document not found`,
         );
         callback({
           code: grpc.status.NOT_FOUND,
@@ -487,8 +492,9 @@ export class FirestoreServer {
         return;
       }
 
-      this.logGrpc(
-        `[gRPC] DeleteDocument response: SUCCESS - Document deleted`,
+      this.logger.log(
+        'grpc',
+        `DeleteDocument response: SUCCESS - Document deleted`,
       );
       callback(null, {});
     } catch (error: unknown) {
@@ -566,12 +572,14 @@ export class FirestoreServer {
             // DeprecationWarning: Calling start() is no longer necessary. It can be safely omitted.
             // this.grpcServer!.start();
 
-            // eslint-disable-next-line no-console
-            console.log(
+            this.logger.log(
+              'server',
               `Firestore gRPC emulator server running on ${this.config.host}:${port}${isIPv6 ? ' (IPv6 [::], accepts both IPv4 and IPv6 connections)' : ''}`,
             );
-            // eslint-disable-next-line no-console
-            console.log(`Project ID: ${this.config.projectId || 'default'}`);
+            this.logger.log(
+              'server',
+              `Project ID: ${this.config.projectId || 'default'}`,
+            );
 
             resolve();
           },
@@ -587,11 +595,10 @@ export class FirestoreServer {
       const promises: Promise<void>[] = [];
 
       if (this.grpcServer) {
-        this.logGrpc('[gRPC] Stopping server...');
+        this.logger.log('grpc', 'Stopping server...');
         this.grpcServer.forceShutdown();
         this.grpcServer = undefined;
-        // eslint-disable-next-line no-console
-        console.log('Firestore gRPC emulator server stopped');
+        this.logger.log('server', 'Firestore gRPC emulator server stopped');
       }
 
       Promise.all(promises).then(() => resolve());
