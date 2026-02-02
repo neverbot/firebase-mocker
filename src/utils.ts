@@ -2,7 +2,7 @@
  * Utility functions for Firestore operations
  */
 
-import { FirestoreValue, FirestoreDocument } from './types.js';
+import { FirestoreValue, FirestoreDocument } from './types.ts';
 
 /**
  * Convert a JavaScript value to Firestore value format
