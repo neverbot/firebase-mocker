@@ -5,17 +5,17 @@
 
 import { getConfig } from './config';
 import { FirestoreServer } from './server';
-import { FirestoreStorage } from './storage';
+import { Storage } from './storage';
 import { ServerConfig } from './types';
 
 export class MockFirestore {
   private server?: FirestoreServer;
-  private readonly storage: FirestoreStorage;
+  private readonly storage: Storage;
   private readonly config?: Partial<ServerConfig>;
 
   constructor(config?: Partial<ServerConfig>) {
     this.config = config;
-    this.storage = new FirestoreStorage();
+    this.storage = new Storage();
   }
 
   /**
@@ -47,7 +47,7 @@ export class MockFirestore {
   /**
    * Get the storage instance
    */
-  public getStorage(): FirestoreStorage {
+  public getStorage(): Storage {
     return this.storage;
   }
 

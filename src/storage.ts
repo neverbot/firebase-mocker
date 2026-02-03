@@ -9,7 +9,7 @@ import {
   FirestoreProject,
 } from './types';
 
-export class FirestoreStorage {
+export class Storage {
   private readonly projects = new Map<string, FirestoreProject>();
 
   /**

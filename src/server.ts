@@ -7,7 +7,7 @@ import * as path from 'path';
 import * as grpc from '@grpc/grpc-js';
 import * as protobuf from 'protobufjs';
 import { getLogger } from './logger';
-import { FirestoreStorage } from './storage';
+import { Storage } from './storage';
 import {
   FirestoreDocument,
   FirestoreValue,
@@ -24,7 +24,7 @@ import {
 } from './utils';
 
 export class FirestoreServer {
-  private readonly storage: FirestoreStorage;
+  private readonly storage: Storage;
   private readonly config: ServerConfig;
   private grpcServer?: grpc.Server;
   private readonly logger = getLogger();
@@ -37,7 +37,7 @@ export class FirestoreServer {
 
   constructor(config: ServerConfig) {
     this.config = config;
-    this.storage = new FirestoreStorage();
+    this.storage = new Storage();
   }
 
   /**
@@ -1748,7 +1748,7 @@ export class FirestoreServer {
     });
   }
 
-  public getStorage(): FirestoreStorage {
+  public getStorage(): Storage {
     return this.storage;
   }
 

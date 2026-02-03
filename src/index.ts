@@ -63,5 +63,5 @@ export const firebaseMocker = {
 export { MockFirestore } from './firestore';
 export { MockAuthentication } from './auth';
 export { FirestoreServer } from './server';
-export { FirestoreStorage } from './storage';
+export { Storage } from './storage';
 export * from './types';
