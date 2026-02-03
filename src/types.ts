@@ -20,7 +20,7 @@ export interface FirestoreDocument {
   fields: Record<string, FirestoreValue>;
   createTime?: string;
   updateTime?: string;
-  // Metadata about field types - used to reconstruct values when proto-loader loses oneof data
+  // Metadata about field types - used to preserve field type information
   fieldTypes?: Record<string, FieldType>;
 }
 

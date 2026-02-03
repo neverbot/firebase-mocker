@@ -145,7 +145,7 @@ export function normalizeGrpcValueToFirestoreValue(value: any): FirestoreValue {
   }
 
   // Check both snake_case and camelCase formats
-  // proto-loader may convert to camelCase depending on keepCase option
+  // protobufjs (when loaded from JSON) uses camelCase
   if ('null_value' in value || 'nullValue' in value) {
     return { nullValue: null };
   }

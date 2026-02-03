@@ -1041,14 +1041,8 @@ export class FirestoreServer {
 
   /**
    * Reconstruct document fields using stored metadata
-   * This is used when proto-loader loses oneof field data
-   *
-   * NOTE: This currently reconstructs empty values because proto-loader loses
-   * the actual data before it reaches our code. The values are lost during
-   * deserialization, so we can only reconstruct the type, not the actual data.
-   *
-   * TODO: Investigate using gRPC interceptors or protobufjs directly to capture
-   * the raw message buffer before proto-loader deserializes it.
+   * This is used as a fallback to ensure field types are preserved
+   * when reconstructing documents from storage
    */
   private reconstructDocumentFields(
     document: FirestoreDocument,
