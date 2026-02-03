@@ -57,7 +57,6 @@
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.14.3",
-    "@grpc/proto-loader": "^0.8.0",
     "@types/protobufjs": "^6.0.0",
     "config": "^4.2.0",
     "express": "^5.2.1",
