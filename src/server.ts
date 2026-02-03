@@ -16,7 +16,6 @@ import {
 } from './types';
 import {
   toFirestoreDocument,
-  fromFirestoreDocument,
   buildDocumentPath,
   generateDocumentId,
   toTimestamp,
@@ -46,8 +45,8 @@ export class FirestoreServer {
    */
   private extractArrayValueFromMessage(
     valueMessage: any,
-    fieldName: string,
-  ): any | null {
+    _fieldName: string,
+  ): any {
     try {
       if (!this.ValueType || !this.protobufRoot) {
         return null;
@@ -79,7 +78,7 @@ export class FirestoreServer {
         if (!arrayValue && (arrayValueField as any).get) {
           try {
             arrayValue = (arrayValueField as any).get(valueMessage);
-          } catch (e) {
+          } catch {
             // Field getter failed
           }
         }
@@ -97,7 +96,7 @@ export class FirestoreServer {
               oneofs: true,
             });
             arrayValue = valueObj.array_value || valueObj.arrayValue;
-          } catch (e) {
+          } catch {
             // toObject failed
           }
         }
@@ -127,7 +126,7 @@ export class FirestoreServer {
       }
 
       return null;
-    } catch (e) {
+    } catch {
       return null;
     }
   }
@@ -138,8 +137,8 @@ export class FirestoreServer {
   private manualDecodeArrayValue(
     buffer: Buffer,
     fieldName: string,
-    writeIndex: number,
-  ): any | null {
+    _writeIndex: number,
+  ): any {
     try {
       // Get ArrayValue type for decoding
       const arrayValueType = this.protobufRoot!.lookupType(
@@ -152,7 +151,6 @@ export class FirestoreServer {
       // Search for the field name in the buffer (as UTF-8 bytes)
       const fieldNameBytes = Buffer.from(fieldName, 'utf8');
       let searchStart = 0;
-      const found = false;
 
       // Look for the field name in the buffer
       // In protobuf, field names are encoded as strings
@@ -165,7 +163,6 @@ export class FirestoreServer {
         // Check if this looks like a field name (preceded by field tag)
         // Field tag for map entry key (field 1) is typically 0x0A (wire type 2, field 1)
         // We're looking for the field name followed by array_value data
-        const beforeIndex = index > 0 ? buffer[index - 1] : 0;
 
         // After the field name, we should find the array_value field
         // array_value is field 6 in Value message, wire type 2 (length-delimited)
@@ -219,7 +216,7 @@ export class FirestoreServer {
                   );
 
                   return arrayValueObj;
-                } catch (e) {
+                } catch {
                   // Decoding failed, continue searching
                 }
               }
@@ -231,7 +228,7 @@ export class FirestoreServer {
       }
 
       return null;
-    } catch (e) {
+    } catch {
       return null;
     }
   }
@@ -342,7 +339,7 @@ export class FirestoreServer {
                                       valueMessage._decodedArrayValue =
                                         arrayValue;
                                     }
-                                  } catch (e) {
+                                  } catch {
                                     // Field access failed, continue
                                   }
                                 }
@@ -374,7 +371,7 @@ export class FirestoreServer {
                             );
                           }
                         }
-                      } catch (e) {
+                      } catch {
                         // Error accessing field, continue
                       }
                     });
@@ -450,7 +447,7 @@ export class FirestoreServer {
                                 ),
                               },
                             };
-                          } catch (e) {
+                          } catch {
                             fields[key] = fieldValue;
                           }
                         } else {
@@ -459,7 +456,7 @@ export class FirestoreServer {
                       } else {
                         fields[key] = fieldValue;
                       }
-                    } catch (e) {
+                    } catch {
                       fields[key] = fieldValue;
                     }
                   });
@@ -474,7 +471,7 @@ export class FirestoreServer {
                 }
                 return write;
               });
-            } catch (e) {
+            } catch {
               // Serializer not available, continue with original data
             }
           }
@@ -1163,7 +1160,6 @@ export class FirestoreServer {
         return;
       }
 
-      const projectId = parts[projectIndex + 1];
       let databaseId = parts[dbIndex + 1];
 
       // Normalize database ID
@@ -1403,7 +1399,6 @@ export class FirestoreServer {
         return;
       }
 
-      const projectId = parts[projectIndex + 1];
       let databaseId = parts[dbIndex + 1];
 
       // Normalize database ID
@@ -1599,7 +1594,7 @@ export class FirestoreServer {
             try {
               jsonProtoPath =
                 require.resolve('@google-cloud/firestore/build/protos/v1.json');
-            } catch (e) {
+            } catch {
               // Fallback to relative path
               jsonProtoPath = path.join(
                 __dirname,
