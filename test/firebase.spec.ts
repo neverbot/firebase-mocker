@@ -190,4 +190,277 @@ describe('Firebase Basic Services', () => {
       expect(storedData).to.deep.include(adminData);
     });
   });
+
+  describe('Document Operations', () => {
+    it('should update an existing document', async function () {
+      const collectionName = 'users';
+      const docId = 'user-update';
+      const docRef = db.collection(collectionName).doc(docId);
+
+      // Create initial document
+      const initialData = {
+        name: 'John Doe',
+        email: 'john@example.com',
+        age: 30,
+      };
+      await docRef.set(initialData);
+
+      // Update the document
+      const updateData = {
+        age: 31,
+        city: 'New York',
+      };
+      await docRef.update(updateData);
+
+      // Verify updated document
+      const doc = await docRef.get();
+      expect(doc.exists).to.be.true;
+      const data = doc.data();
+      expect(data?.name).to.equal('John Doe'); // Should preserve existing fields
+      expect(data?.email).to.equal('john@example.com');
+      expect(data?.age).to.equal(31); // Should update this field
+      expect(data?.city).to.equal('New York'); // Should add new field
+    });
+
+    it('should delete a document', async function () {
+      const collectionName = 'temp';
+      const docId = 'to-delete';
+      const docRef = db.collection(collectionName).doc(docId);
+
+      // Create document
+      await docRef.set({ data: 'test' });
+
+      // Verify it exists
+      let doc = await docRef.get();
+      expect(doc.exists).to.be.true;
+
+      // Delete the document
+      await docRef.delete();
+
+      // Verify it's deleted
+      doc = await docRef.get();
+      expect(doc.exists).to.be.false;
+
+      // Verify it's removed from storage
+      const storage = getFirestoreStorage();
+      const storedDoc = storage.getDocument(
+        projectId,
+        databaseId,
+        collectionName,
+        docId,
+      );
+      expect(storedDoc).to.be.null;
+    });
+
+    it('should handle non-existent document', async function () {
+      const collectionName = 'non-existent';
+      const docId = 'missing-doc';
+      const docRef = db.collection(collectionName).doc(docId);
+
+      // Try to get a non-existent document
+      const doc = await docRef.get();
+      expect(doc.exists).to.be.false;
+      expect(doc.data()).to.be.undefined;
+    });
+  });
+
+  describe('Data Types', () => {
+    it('should handle different data types', async function () {
+      const collectionName = 'data-types';
+      const docId = 'types-test';
+      const docRef = db.collection(collectionName).doc(docId);
+
+      const data = {
+        stringValue: 'hello',
+        numberValue: 42,
+        floatValue: 3.14,
+        booleanValue: true,
+        booleanFalse: false,
+        arrayValue: [1, 2, 3],
+      };
+
+      await docRef.set(data);
+
+      const doc = await docRef.get();
+      expect(doc.exists).to.be.true;
+      const retrieved = doc.data();
+
+      expect(retrieved?.stringValue).to.equal('hello');
+      expect(retrieved?.numberValue).to.equal(42);
+      expect(retrieved?.floatValue).to.equal(3.14);
+      expect(retrieved?.booleanValue).to.equal(true);
+      expect(retrieved?.booleanFalse).to.equal(false);
+      expect(retrieved?.arrayValue).to.deep.equal([1, 2, 3]);
+    });
+
+    it('should handle timestamps', async function () {
+      const collectionName = 'timestamps';
+      const docId = 'timestamp-test';
+      const docRef = db.collection(collectionName).doc(docId);
+
+      const now = admin.firestore.Timestamp.now();
+      const data = {
+        timestamp: now,
+      };
+
+      await docRef.set(data);
+
+      const doc = await docRef.get();
+      expect(doc.exists).to.be.true;
+      const retrieved = doc.data();
+
+      expect(retrieved?.timestamp).to.be.instanceOf(admin.firestore.Timestamp);
+    });
+
+    it('should handle nested arrays and objects', async function () {
+      const collectionName = 'complex-data';
+      const docId = 'complex';
+      const docRef = db.collection(collectionName).doc(docId);
+
+      const data = {
+        users: [
+          { name: 'Alice', age: 25 },
+          { name: 'Bob', age: 30 },
+        ],
+        metadata: {
+          tags: ['tag1', 'tag2'],
+          config: {
+            enabled: true,
+            count: 5,
+          },
+        },
+      };
+
+      await docRef.set(data);
+
+      const doc = await docRef.get();
+      expect(doc.exists).to.be.true;
+      const retrieved = doc.data();
+
+      expect(retrieved?.users).to.be.an('array').with.length(2);
+      expect(retrieved?.users[0]).to.deep.include({ name: 'Alice', age: 25 });
+      expect(retrieved?.users[1]).to.deep.include({ name: 'Bob', age: 30 });
+      expect(retrieved?.metadata.tags).to.deep.equal(['tag1', 'tag2']);
+      expect(retrieved?.metadata.config).to.deep.include({
+        enabled: true,
+        count: 5,
+      });
+    });
+
+    it('should handle empty arrays', async function () {
+      const collectionName = 'empty-structures';
+      const docId = 'empty';
+      const docRef = db.collection(collectionName).doc(docId);
+
+      const data = {
+        emptyArray: [],
+        someValue: 'test',
+      };
+
+      await docRef.set(data);
+
+      const doc = await docRef.get();
+      expect(doc.exists).to.be.true;
+      const retrieved = doc.data();
+
+      expect(retrieved?.emptyArray).to.be.an('array').that.is.empty;
+      expect(retrieved?.someValue).to.equal('test');
+    });
+  });
+
+  describe('Subcollections', () => {
+    it('should handle subcollections', async function () {
+      const collectionName = 'users';
+      const docId = 'user-1';
+      const subcollectionName = 'posts';
+      const subDocId = 'post-1';
+
+      const userRef = db.collection(collectionName).doc(docId);
+      const postRef = userRef.collection(subcollectionName).doc(subDocId);
+
+      // Create user document
+      await userRef.set({ name: 'John' });
+
+      // Create subcollection document
+      const postData = {
+        title: 'My First Post',
+        content: 'This is the content',
+      };
+      await postRef.set(postData);
+
+      // Verify subcollection document
+      const postDoc = await postRef.get();
+      expect(postDoc.exists).to.be.true;
+      expect(postDoc.data()).to.deep.include(postData);
+
+      // Verify subcollection path
+      expect(postRef.path).to.equal(
+        `${collectionName}/${docId}/${subcollectionName}/${subDocId}`,
+      );
+    });
+  });
+
+  describe('Batch Operations', () => {
+    it('should handle batch writes', async function () {
+      const batch = db.batch();
+      const collectionName = 'batch-test';
+
+      const doc1 = db.collection(collectionName).doc('doc1');
+      const doc2 = db.collection(collectionName).doc('doc2');
+      const doc3 = db.collection(collectionName).doc('doc3');
+
+      batch.set(doc1, { value: 1 });
+      batch.set(doc2, { value: 2 });
+      batch.set(doc3, { value: 3 });
+
+      await batch.commit();
+
+      // Verify all documents were created
+      const [snap1, snap2, snap3] = await Promise.all([
+        doc1.get(),
+        doc2.get(),
+        doc3.get(),
+      ]);
+
+      expect(snap1.exists).to.be.true;
+      expect(snap1.data()?.value).to.equal(1);
+      expect(snap2.exists).to.be.true;
+      expect(snap2.data()?.value).to.equal(2);
+      expect(snap3.exists).to.be.true;
+      expect(snap3.data()?.value).to.equal(3);
+    });
+
+    it('should handle batch updates and deletes', async function () {
+      const batch = db.batch();
+      const collectionName = 'batch-mixed';
+
+      const doc1 = db.collection(collectionName).doc('doc1');
+      const doc2 = db.collection(collectionName).doc('doc2');
+      const doc3 = db.collection(collectionName).doc('doc3');
+
+      // Create documents first
+      await doc1.set({ value: 1 });
+      await doc2.set({ value: 2 });
+      await doc3.set({ value: 3 });
+
+      // Batch update and delete
+      batch.update(doc1, { value: 10 });
+      batch.update(doc2, { newField: 'updated' });
+      batch.delete(doc3);
+
+      await batch.commit();
+
+      // Verify updates
+      const snap1 = await doc1.get();
+      expect(snap1.data()?.value).to.equal(10);
+
+      const snap2 = await doc2.get();
+      expect(snap2.data()?.value).to.equal(2); // Should preserve existing
+      expect(snap2.data()?.newField).to.equal('updated');
+
+      // Verify delete
+      const snap3 = await doc3.get();
+      expect(snap3.exists).to.be.false;
+    });
+  });
 });

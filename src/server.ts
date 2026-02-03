@@ -1020,15 +1020,17 @@ export class FirestoreServer {
         `CreateDocument response: SUCCESS - Created document at ${documentPath}`,
       );
       // Convert to gRPC Document format with Timestamp
+      const now = new Date();
+      const defaultTimestamp = toTimestamp(now);
       const grpcDocument = {
         name: document.name,
-        fields: document.fields,
-        create_time: document.createTime
+        fields: toGrpcFields(document.fields),
+        createTime: document.createTime
           ? toTimestamp(new Date(document.createTime))
-          : undefined,
-        update_time: document.updateTime
+          : defaultTimestamp,
+        updateTime: document.updateTime
           ? toTimestamp(new Date(document.updateTime))
-          : undefined,
+          : defaultTimestamp,
       };
       callback(null, grpcDocument);
     } catch (error: unknown) {
@@ -1096,7 +1098,18 @@ export class FirestoreServer {
         'grpc',
         `UpdateDocument response: SUCCESS - ${existingDoc ? 'Updated' : 'Created'} document at ${path}`,
       );
-      callback(null, document);
+      // Convert to gRPC Document format with Timestamp
+      const grpcDocument = {
+        name: document.name,
+        fields: toGrpcFields(document.fields),
+        createTime: document.createTime
+          ? toTimestamp(new Date(document.createTime))
+          : toTimestamp(new Date()),
+        updateTime: document.updateTime
+          ? toTimestamp(new Date(document.updateTime))
+          : toTimestamp(new Date()),
+      };
+      callback(null, grpcDocument);
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
@@ -1286,9 +1299,21 @@ export class FirestoreServer {
             });
           }
 
+          // For updates, merge with existing fields
+          let finalFields = fields;
+          if (existingDoc && write.updateMask) {
+            // If updateMask is present, merge with existing fields
+            const existingFields = existingDoc.fields || {};
+            finalFields = { ...existingFields, ...fields };
+          } else if (existingDoc && !write.updateMask) {
+            // If no updateMask, merge with existing fields (update operation)
+            const existingFields = existingDoc.fields || {};
+            finalFields = { ...existingFields, ...fields };
+          }
+
           const document: FirestoreDocument = {
             name: docPath,
-            fields,
+            fields: finalFields,
             createTime: existingDoc?.createTime || new Date().toISOString(),
             updateTime: new Date().toISOString(),
             fieldTypes:
