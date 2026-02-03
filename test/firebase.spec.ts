@@ -11,7 +11,7 @@ import { getFirestore, getFirestoreStorage, setup, teardown } from './_setup';
 describe('Firebase Basic Services', () => {
   let db: admin.firestore.Firestore;
   const projectId = 'test-project';
-  const databaseId = 'default';
+  const databaseId = '(default)';
 
   before(async function () {
     await setup();

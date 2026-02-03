@@ -661,11 +661,7 @@ export class FirestoreServer {
     }
 
     const projectId = parts[projectIndex + 1];
-    let databaseId = parts[dbIndex + 1];
-    // Normalize database ID: (default) -> default
-    if (databaseId === '(default)') {
-      databaseId = 'default';
-    }
+    const databaseId = parts[dbIndex + 1];
     const collectionId = parts[docsIndex + 1] || '';
     const docId = parts[docsIndex + 2] || '';
 
@@ -832,19 +828,16 @@ export class FirestoreServer {
   private handleRunQuery(call: grpc.ServerWritableStream<any, any>): void {
     try {
       const request = call.request;
-      let parent = request.parent || '';
+      const parent = request.parent || '';
       // Handle both camelCase (from JSON protos) and snake_case formats
       const structuredQuery =
         request.structured_query || request.structuredQuery || {};
       const from = structuredQuery.from;
 
-      // Normalize parent path: replace (default) with default
-      parent = parent.replace('/databases/(default)/', '/databases/default/');
-
       // Parse parent path to extract projectId, databaseId
       const parts = parent.split('/');
       const projectId = parts[1] || 'test-project';
-      const databaseId = parts[3] || 'default';
+      const databaseId = parts[3] || '(default)';
 
       // Get collection ID from the query
       // According to proto, StructuredQuery.from is a single CollectionSelector, not an array
@@ -1146,11 +1139,6 @@ export class FirestoreServer {
       const database = request.database || '';
       const writes = request.writes || [];
 
-      this.logger.log(
-        'grpc',
-        `Commit request: database=${database}, writes=${writes.length}`,
-      );
-
       // Parse database path like "projects/{project}/databases/{db}"
       const parts = database.split('/');
       const projectIndex = parts.indexOf('projects');
@@ -1164,6 +1152,10 @@ export class FirestoreServer {
       ) {
         this.logger.log(
           'grpc',
+          `Commit request: database=${database}, writes=${writes.length}`,
+        );
+        this.logger.log(
+          'grpc',
           `Commit response: ERROR - Invalid database path`,
         );
         callback({
@@ -1173,12 +1165,10 @@ export class FirestoreServer {
         return;
       }
 
-      let databaseId = parts[dbIndex + 1];
-
-      // Normalize database ID
-      if (databaseId === '(default)') {
-        databaseId = 'default';
-      }
+      this.logger.log(
+        'grpc',
+        `Commit request: database=${database}, writes=${writes.length}`,
+      );
 
       const writeResults: any[] = [];
       const now = new Date();
@@ -1393,11 +1383,6 @@ export class FirestoreServer {
       const database = request.database || '';
       const documents = request.documents || [];
 
-      this.logger.log(
-        'grpc',
-        `BatchGetDocuments request: database=${database}, documents=${documents.length}`,
-      );
-
       // Parse database path like "projects/{project}/databases/{db}"
       const parts = database.split('/');
       const projectIndex = parts.indexOf('projects');
@@ -1409,6 +1394,10 @@ export class FirestoreServer {
         projectIndex + 1 >= parts.length ||
         dbIndex + 1 >= parts.length
       ) {
+        this.logger.log(
+          'grpc',
+          `BatchGetDocuments request: database=${database}, documents=${documents.length}`,
+        );
         this.logger.log(
           'grpc',
           `BatchGetDocuments response: ERROR - Invalid database path`,
@@ -1424,12 +1413,10 @@ export class FirestoreServer {
         return;
       }
 
-      let databaseId = parts[dbIndex + 1];
-
-      // Normalize database ID
-      if (databaseId === '(default)') {
-        databaseId = 'default';
-      }
+      this.logger.log(
+        'grpc',
+        `BatchGetDocuments request: database=${database}, documents=${documents.length}`,
+      );
 
       // Process each document request
       for (const docPath of documents) {
