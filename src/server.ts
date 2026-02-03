@@ -1704,10 +1704,7 @@ export class FirestoreServer {
                 serviceImplementation,
               );
 
-              this.logger.log(
-                'server',
-                'Loaded proto with protobufjs only (no proto-loader)',
-              );
+              this.logger.log('server', 'Loaded proto with protobufjs');
             }
           } catch (error) {
             reject(
