@@ -6,7 +6,7 @@
 import { expect } from 'chai';
 import * as admin from 'firebase-admin';
 import { fromFirestoreDocument } from '../src/utils';
-import { getFirestore, getFirestoreStorage, setup, teardown } from './_setup';
+import { getFirestore, getFirestoreStorage } from './_setup';
 
 describe('Firebase Basic Services', () => {
   let db: admin.firestore.Firestore;
@@ -14,12 +14,8 @@ describe('Firebase Basic Services', () => {
   const databaseId = '(default)';
 
   before(async function () {
-    await setup();
+    // Setup is already done globally in _setup.ts, just get the Firestore instance
     db = getFirestore();
-  });
-
-  after(async function () {
-    await teardown();
   });
 
   describe('Collections', () => {

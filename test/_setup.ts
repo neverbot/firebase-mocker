@@ -11,11 +11,19 @@ import { firebaseMocker, FirestoreServer } from '../src/index';
 let firebaseApp: admin.app.App | undefined = undefined;
 let firestoreServer: FirestoreServer | null = null;
 let grpcServer: grpc.Server | null = null;
+let isInitialized = false;
+let isTearingDown = false;
 
 /**
  * Setup function to initialize the Firebase mocker and Firebase Admin SDK
+ * This function is idempotent - it will only initialize once, even if called multiple times
  */
 export async function setup(): Promise<void> {
+  // If already initialized, skip
+  if (isInitialized) {
+    return;
+  }
+
   // Start the Firestore mock server (HTTP REST)
   // This will automatically set FIRESTORE_EMULATOR_HOST
   firestoreServer = await firebaseMocker.startFirestoreServer({
@@ -31,46 +39,52 @@ export async function setup(): Promise<void> {
   // Initialize Firebase Admin SDK
   // IMPORTANT: FIRESTORE_EMULATOR_HOST must be set BEFORE initializing the app
   // Firebase Admin SDK checks this variable at initialization time
-  if (firebaseApp === undefined) {
-    const emulatorHost =
-      process.env.FIRESTORE_EMULATOR_HOST || 'localhost:3333';
+  const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST || 'localhost:3333';
 
-    // Verify the environment variable is set
-    if (!process.env.FIRESTORE_EMULATOR_HOST) {
-      process.env.FIRESTORE_EMULATOR_HOST = emulatorHost;
-    }
-
-    // Initialize Firebase Admin with explicit project ID
-    // Note: We don't need credentials when using emulator
-    firebaseApp = admin.initializeApp(
-      {
-        projectId: 'test-project',
-      },
-      'test-app', // Use a unique app name to avoid conflicts
-    );
-
-    // Get Firestore instance
-    // Firebase Admin SDK should automatically detect FIRESTORE_EMULATOR_HOST
-    const firestore = admin.firestore(firebaseApp);
-
-    // Log the configuration to debug
-    console.log(`[SETUP] Firestore instance created`);
-
-    // Force client creation by creating a collection reference
-    // The client is created lazily, so we need to trigger it
-    const testCollection = firestore.collection('_setup_test');
-    console.log(
-      `[SETUP] Created test collection reference to force client initialization: ${testCollection.path}`,
-    );
+  // Verify the environment variable is set
+  if (!process.env.FIRESTORE_EMULATOR_HOST) {
+    process.env.FIRESTORE_EMULATOR_HOST = emulatorHost;
   }
 
+  // Initialize Firebase Admin with explicit project ID
+  // Note: We don't need credentials when using emulator
+  firebaseApp = admin.initializeApp(
+    {
+      projectId: 'test-project',
+    },
+    'test-app', // Use a unique app name to avoid conflicts
+  );
+
+  // Get Firestore instance
+  // Firebase Admin SDK should automatically detect FIRESTORE_EMULATOR_HOST
+  const firestore = admin.firestore(firebaseApp);
+
+  // Log the configuration to debug
+  console.log(`[SETUP] Firestore instance created`);
+
+  // Force client creation by creating a collection reference
+  // The client is created lazily, so we need to trigger it
+  const testCollection = firestore.collection('_setup_test');
+  console.log(
+    `[SETUP] Created test collection reference to force client initialization: ${testCollection.path}`,
+  );
+
+  isInitialized = true;
   console.log('Firebase mocker setup complete');
 }
 
 /**
  * Teardown function to clean up resources
+ * This function is idempotent - it will only tear down once, even if called multiple times
  */
 export async function teardown(): Promise<void> {
+  // If already tearing down or not initialized, skip
+  if (isTearingDown || !isInitialized) {
+    return;
+  }
+
+  isTearingDown = true;
+
   if (grpcServer) {
     grpcServer.forceShutdown();
     grpcServer = null;
@@ -80,16 +94,20 @@ export async function teardown(): Promise<void> {
   if (firestoreServer) {
     await firestoreServer.stop();
     firestoreServer = null;
+    console.log('[TEARDOWN] Firestore server stopped');
   }
 
   if (firebaseApp !== undefined) {
     await firebaseApp.delete();
     firebaseApp = undefined;
+    console.log('[TEARDOWN] Firebase app deleted');
   }
 
   // Clean up environment variable
   delete process.env.FIRESTORE_EMULATOR_HOST;
 
+  isInitialized = false;
+  isTearingDown = false;
   console.log('Firebase mocker teardown complete');
 }
 
@@ -161,16 +179,18 @@ export async function testSetup(): Promise<void> {
   }
 }
 
+// Global Mocha hooks - initialize once for all tests
+before(async function () {
+  await setup();
+});
+
+// Global Mocha hook - cleanup after all tests complete
+after(async function () {
+  await teardown();
+});
+
 // Mocha test suite
 describe('Firebase Mocker Basic Connection Test', () => {
-  before(async function () {
-    await setup();
-  });
-
-  after(async function () {
-    await teardown();
-  });
-
   it('should connect Firebase Admin SDK to our emulator', async function () {
     console.log('[TEST] Testing Firebase Admin SDK connection...');
 
