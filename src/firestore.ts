@@ -4,8 +4,8 @@
  */
 
 import { getConfig } from './config';
-import { FirestoreStorage } from './firestore-storage';
 import { FirestoreServer } from './server';
+import { FirestoreStorage } from './storage';
 import { ServerConfig } from './types';
 
 export class MockFirestore {

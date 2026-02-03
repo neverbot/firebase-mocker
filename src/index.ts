@@ -6,7 +6,6 @@ import { MockAuthentication } from './auth';
 import { getConfig } from './config';
 import { MockFirestore } from './firestore';
 import { FirestoreServer } from './server';
-import { MockStorage } from './storage';
 import { ServerConfig } from './types';
 
 /**
@@ -28,14 +27,6 @@ export const firebaseMocker = {
    */
   MockAuthentication: (): MockAuthentication => {
     return new MockAuthentication();
-  },
-
-  /**
-   * Create a Mock Storage instance
-   * @returns MockStorage instance
-   */
-  MockStorage: (): MockStorage => {
-    return new MockStorage();
   },
 
   /**
@@ -71,7 +62,6 @@ export const firebaseMocker = {
 // Export classes for advanced usage
 export { MockFirestore } from './firestore';
 export { MockAuthentication } from './auth';
-export { MockStorage } from './storage';
 export { FirestoreServer } from './server';
-export { FirestoreStorage } from './firestore-storage';
+export { FirestoreStorage } from './storage';
 export * from './types';
