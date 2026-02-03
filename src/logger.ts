@@ -16,12 +16,8 @@ export type LogType = 'setup' | 'test' | 'grpc' | 'server' | 'error' | 'info';
  */
 class Logger {
   private readonly logger: winston.Logger;
-  private readonly verboseGrpcLogs: boolean;
 
   constructor() {
-    const config = getConfig();
-    this.verboseGrpcLogs = config.getVerboseGrpcLogs();
-
     // Create Winston logger with simple format
     this.logger = winston.createLogger({
       level: 'info',
@@ -61,8 +57,8 @@ class Logger {
     message: string,
     level: 'error' | 'warn' | 'info' | 'debug' = 'info',
   ): void {
-    // Check if we should log gRPC messages
-    if (type === 'grpc' && !this.verboseGrpcLogs) {
+    // Check if we should log gRPC messages (read config dynamically)
+    if (type === 'grpc' && !getConfig().getBoolean('logs.verboseGrpcLogs')) {
       return;
     }
 

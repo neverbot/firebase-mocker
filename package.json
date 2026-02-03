@@ -19,7 +19,6 @@
   },
   "files": [
     "dist",
-    "src",
     "readme.md",
     "local_install.md"
   ],
@@ -35,7 +34,6 @@
   "devDependencies": {
     "@eslint/js": "^9.39.2",
     "@types/chai": "^5.2.3",
-    "@types/config": "^3.3.5",
     "@types/express": "^5.0.6",
     "@types/mocha": "^10.0.10",
     "@types/node": "^25.2.0",
@@ -58,7 +56,6 @@
   "dependencies": {
     "@grpc/grpc-js": "^1.14.3",
     "@types/protobufjs": "^6.0.0",
-    "config": "^4.2.0",
     "express": "^5.2.1",
     "protobufjs": "^8.0.0",
     "winston": "^3.19.0"

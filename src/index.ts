@@ -3,7 +3,7 @@
  */
 
 import { MockAuthentication } from './auth';
-import { getConfig } from './config';
+import { AppConfig, getConfig, initializeConfig } from './config';
 import { MockFirestore } from './firestore';
 import { FirestoreServer } from './server';
 import { ServerConfig } from './types';
@@ -35,8 +35,13 @@ export const firebaseMocker = {
    * @returns FirestoreServer instance
    */
   startFirestoreServer: async (
-    config?: Partial<ServerConfig>,
+    config?: Partial<AppConfig>,
   ): Promise<FirestoreServer> => {
+    // Initialize Config with the provided configuration if not already initialized
+    if (config) {
+      initializeConfig(config);
+    }
+
     const appConfig = getConfig();
     const serverConfig: ServerConfig = {
       port: config?.port ?? appConfig.getPort(),
@@ -64,4 +69,5 @@ export { MockFirestore } from './firestore';
 export { MockAuthentication } from './auth';
 export { FirestoreServer } from './server';
 export { Storage } from './storage';
+export { AppConfig } from './config';
 export * from './types';
