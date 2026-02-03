@@ -57,4 +57,12 @@ export class MockFirestore {
   public getServer(): FirestoreServer | undefined {
     return this.server;
   }
+
+  /**
+   * Debug method to log all content in storage
+   * Useful for debugging from external projects
+   */
+  public debugLogStorage(): void {
+    this.storage.debugLog();
+  }
 }

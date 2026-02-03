@@ -1764,4 +1764,12 @@ export class FirestoreServer {
   public getConfig(): Readonly<ServerConfig> {
     return { ...this.config };
   }
+
+  /**
+   * Debug method to log all content in storage
+   * Useful for debugging from external projects
+   */
+  public debugLogStorage(): void {
+    this.storage.debugLog();
+  }
 }

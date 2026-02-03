@@ -96,6 +96,17 @@ class Logger {
   public debug(type: LogType, message: string): void {
     this.log(type, message, 'debug');
   }
+
+  /**
+   * Log a message directly without specifying type
+   * Useful for simple logging that doesn't need categorization
+   */
+  public logMessage(message: string): void {
+    this.logger.log({
+      level: 'info',
+      message,
+    });
+  }
 }
 
 /**
