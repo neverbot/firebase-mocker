@@ -149,11 +149,12 @@ describe('Firebase Basic Services', () => {
       const collectionRef = db.collection(collectionName);
       const docRef = collectionRef.doc(docId);
 
-      // Create a document
+      // Create a document with an array field
+      // This should work now that we're using JSON protos (same as firebase-admin)
       const orderData = {
         orderId: 'order-123',
         customerId: 'customer-456',
-        items: ['item-1', 'item-2'],
+        items: ['item-1', 'item-2'], // Real array, not nested object
         total: 99.99,
         status: 'pending',
       };

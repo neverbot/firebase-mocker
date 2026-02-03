@@ -215,78 +215,79 @@ export function normalizeGrpcValueToFirestoreValue(value: any): FirestoreValue {
 }
 
 /**
- * Convert FirestoreValue (camelCase) to gRPC value (snake_case)
+ * Convert FirestoreValue (camelCase) to gRPC value format
+ * When protobufjs loads from JSON, it uses camelCase, so we return camelCase
  * This is a recursive function that handles all value types including nested arrays and maps
  */
 export function toGrpcValue(firestoreValue: FirestoreValue): any {
   if (!firestoreValue || typeof firestoreValue !== 'object') {
-    return { null_value: null };
+    return { nullValue: null };
   }
 
   if ('nullValue' in firestoreValue) {
-    return { null_value: null };
+    return { nullValue: null };
   }
 
   if ('booleanValue' in firestoreValue) {
-    return { boolean_value: firestoreValue.booleanValue };
+    return { booleanValue: firestoreValue.booleanValue };
   }
 
   if ('integerValue' in firestoreValue) {
-    return { integer_value: firestoreValue.integerValue };
+    return { integerValue: firestoreValue.integerValue };
   }
 
   if ('doubleValue' in firestoreValue) {
-    return { double_value: firestoreValue.doubleValue };
+    return { doubleValue: firestoreValue.doubleValue };
   }
 
   if ('stringValue' in firestoreValue) {
-    return { string_value: firestoreValue.stringValue };
+    return { stringValue: firestoreValue.stringValue };
   }
 
   if ('timestampValue' in firestoreValue) {
-    return { timestamp_value: firestoreValue.timestampValue };
+    return { timestampValue: firestoreValue.timestampValue };
   }
 
   if ('bytesValue' in firestoreValue) {
-    return { bytes_value: firestoreValue.bytesValue };
+    return { bytesValue: firestoreValue.bytesValue };
   }
 
   if ('referenceValue' in firestoreValue) {
-    return { reference_value: firestoreValue.referenceValue };
+    return { referenceValue: firestoreValue.referenceValue };
   }
 
   if ('geoPointValue' in firestoreValue) {
-    return { geo_point_value: firestoreValue.geoPointValue };
+    return { geoPointValue: firestoreValue.geoPointValue };
   }
 
   if ('arrayValue' in firestoreValue) {
     if (firestoreValue.arrayValue && firestoreValue.arrayValue.values) {
       return {
-        array_value: {
+        arrayValue: {
           values: firestoreValue.arrayValue.values.map(toGrpcValue),
         },
       };
     }
-    return { array_value: { values: [] } };
+    return { arrayValue: { values: [] } };
   }
 
   if ('mapValue' in firestoreValue) {
     if (firestoreValue.mapValue && firestoreValue.mapValue.fields) {
       return {
-        map_value: {
+        mapValue: {
           fields: toGrpcFields(firestoreValue.mapValue.fields),
         },
       };
     }
-    return { map_value: { fields: {} } };
+    return { mapValue: { fields: {} } };
   }
 
-  return { null_value: null };
+  return { nullValue: null };
 }
 
 /**
- * Convert FirestoreValue from camelCase to snake_case for gRPC responses
- * Firebase Admin SDK expects snake_case in gRPC messages
+ * Convert FirestoreValue fields to gRPC format
+ * When protobufjs loads from JSON, it uses camelCase, so we return camelCase
  */
 export function toGrpcFields(
   fields: Record<string, FirestoreValue>,
