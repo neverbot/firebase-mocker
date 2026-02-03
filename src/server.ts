@@ -1152,11 +1152,7 @@ export class FirestoreServer {
       ) {
         this.logger.log(
           'grpc',
-          `Commit request: database=${database}, writes=${writes.length}`,
-        );
-        this.logger.log(
-          'grpc',
-          `Commit response: ERROR - Invalid database path`,
+          `Commit: ${writes.length} writes - ERROR: Invalid database path`,
         );
         callback({
           code: grpc.status.INVALID_ARGUMENT,
@@ -1165,9 +1161,58 @@ export class FirestoreServer {
         return;
       }
 
+      // Group writes by collection and operation type for compact logging
+      const writesByCollection = new Map<
+        string,
+        { updates: string[]; deletes: string[] }
+      >();
+      for (const write of writes) {
+        let docPath = '';
+        let operation: 'update' | 'delete' = 'update';
+        if (write.update) {
+          docPath = write.update.name || '';
+          operation = 'update';
+        } else if (write.delete) {
+          docPath = write.delete;
+          operation = 'delete';
+        }
+
+        if (docPath) {
+          const parsed = this.parseDocumentPath(docPath);
+          if (parsed) {
+            const key = `${parsed.collectionId}`;
+            if (!writesByCollection.has(key)) {
+              writesByCollection.set(key, { updates: [], deletes: [] });
+            }
+            const collectionWrites = writesByCollection.get(key)!;
+            if (operation === 'update') {
+              collectionWrites.updates.push(parsed.docId);
+            } else {
+              collectionWrites.deletes.push(parsed.docId);
+            }
+          }
+        }
+      }
+
+      // Create compact log format: collection[+doc1,doc2 -doc3] collection2[+doc4]
+      const logParts: string[] = [];
+      for (const [collection, ops] of writesByCollection.entries()) {
+        const parts: string[] = [];
+        if (ops.updates.length > 0) {
+          parts.push(`+${ops.updates.join(',')}`);
+        }
+        if (ops.deletes.length > 0) {
+          parts.push(`-${ops.deletes.join(',')}`);
+        }
+        if (parts.length > 0) {
+          logParts.push(`${collection}[${parts.join(' ')}]`);
+        }
+      }
+      const compactLog = logParts.join(' ');
+
       this.logger.log(
         'grpc',
-        `Commit request: database=${database}, writes=${writes.length}`,
+        `Commit: ${compactLog || `${writes.length} writes`}`,
       );
 
       const writeResults: any[] = [];
@@ -1351,9 +1396,10 @@ export class FirestoreServer {
         }
       }
 
+      // Log response with same compact format
       this.logger.log(
         'grpc',
-        `Commit response: SUCCESS - Processed ${writes.length} writes`,
+        `Commit: ${compactLog || `${writes.length} writes`} ✓`,
       );
 
       callback(null, {
@@ -1413,9 +1459,29 @@ export class FirestoreServer {
         return;
       }
 
+      // Group documents by collection for compact logging
+      const docsByCollection = new Map<string, string[]>();
+      for (const docPath of documents) {
+        const parsed = this.parseDocumentPath(docPath);
+        if (parsed) {
+          const key = `${parsed.collectionId}`;
+          if (!docsByCollection.has(key)) {
+            docsByCollection.set(key, []);
+          }
+          docsByCollection.get(key)!.push(parsed.docId);
+        }
+      }
+
+      // Create compact log format: collection/doc1,doc2 collection2/doc3
+      const logParts: string[] = [];
+      for (const [collection, docIds] of docsByCollection.entries()) {
+        logParts.push(`${collection}/${docIds.join(',')}`);
+      }
+      const compactLog = logParts.join(' ');
+
       this.logger.log(
         'grpc',
-        `BatchGetDocuments request: database=${database}, documents=${documents.length}`,
+        `BatchGetDocuments: ${compactLog || `${documents.length} docs`}`,
       );
 
       // Process each document request
@@ -1482,9 +1548,10 @@ export class FirestoreServer {
         }
       }
 
+      // Log response with same compact format
       this.logger.log(
         'grpc',
-        `BatchGetDocuments response: SUCCESS - Processed ${documents.length} documents`,
+        `BatchGetDocuments: ${compactLog || `${documents.length} docs`} ✓`,
       );
       call.end();
     } catch (error: unknown) {
