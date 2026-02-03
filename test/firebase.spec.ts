@@ -5,10 +5,13 @@
 
 import { expect } from 'chai';
 import * as admin from 'firebase-admin';
-import { getFirestore, setup, teardown } from './_setup';
+import { fromFirestoreDocument } from '../src/utils';
+import { getFirestore, getFirestoreStorage, setup, teardown } from './_setup';
 
 describe('Firebase Basic Services', () => {
   let db: admin.firestore.Firestore;
+  const projectId = 'test-project';
+  const databaseId = 'default';
 
   before(async function () {
     await setup();
@@ -58,11 +61,30 @@ describe('Firebase Basic Services', () => {
 
       await docRef.set(data);
 
-      // Verify document was created
+      // Verify document was created via Firebase Admin SDK
       const doc = await docRef.get();
       expect(doc.exists).to.be.true;
       expect(doc.id).to.equal(docId);
       expect(doc.data()).to.deep.include(data);
+
+      // Verify document exists in internal storage
+      const storage = getFirestoreStorage();
+      const storedDoc = storage.getDocument(
+        projectId,
+        databaseId,
+        collectionName,
+        docId,
+      );
+      expect(storedDoc).to.exist;
+      expect(storedDoc?.name).to.include(collectionName);
+      expect(storedDoc?.name).to.include(docId);
+
+      // Verify stored data matches what we set
+      const storedData = fromFirestoreDocument(storedDoc!);
+      expect(storedData).to.deep.include(data);
+
+      // Verify data consistency: Firebase Admin SDK result matches internal storage
+      expect(doc.data()).to.deep.include(storedData);
     });
 
     it('should get a collection with documents', async function () {
@@ -80,17 +102,44 @@ describe('Firebase Basic Services', () => {
         await collectionRef.add(product);
       }
 
-      // Get all documents from the collection
+      // Get all documents from the collection via Firebase Admin SDK
       const snapshot = await collectionRef.get();
 
       expect(snapshot.empty).to.be.false;
       expect(snapshot.size).to.equal(products.length);
       expect(snapshot.docs).to.have.length(products.length);
 
-      // Verify document data
+      // Verify document data from Firebase Admin SDK
       snapshot.docs.forEach((doc, index) => {
         expect(doc.exists).to.be.true;
         expect(doc.data()).to.deep.include(products[index]);
+      });
+
+      // Verify documents exist in internal storage
+      const storage = getFirestoreStorage();
+      const storedDocs = storage.listDocuments(
+        projectId,
+        databaseId,
+        collectionName,
+      );
+      expect(storedDocs).to.have.length(products.length);
+
+      // Verify each document in storage matches Firebase Admin SDK results
+      snapshot.docs.forEach((adminDoc) => {
+        const storedDoc = storage.getDocument(
+          projectId,
+          databaseId,
+          collectionName,
+          adminDoc.id,
+        );
+        expect(storedDoc).to.exist;
+
+        const storedData = fromFirestoreDocument(storedDoc!);
+        const adminData = adminDoc.data();
+
+        // Verify data consistency
+        expect(adminData).to.deep.include(storedData);
+        expect(storedData).to.deep.include(adminData);
       });
     });
 
@@ -111,12 +160,33 @@ describe('Firebase Basic Services', () => {
 
       await docRef.set(orderData);
 
-      // Get the specific document
+      // Get the specific document via Firebase Admin SDK
       const doc = await docRef.get();
 
       expect(doc.exists).to.be.true;
       expect(doc.id).to.equal(docId);
       expect(doc.data()).to.deep.include(orderData);
+
+      // Verify document exists in internal storage
+      const storage = getFirestoreStorage();
+      const storedDoc = storage.getDocument(
+        projectId,
+        databaseId,
+        collectionName,
+        docId,
+      );
+      expect(storedDoc).to.exist;
+      expect(storedDoc?.name).to.include(collectionName);
+      expect(storedDoc?.name).to.include(docId);
+
+      // Verify stored data matches what we set
+      const storedData = fromFirestoreDocument(storedDoc!);
+      expect(storedData).to.deep.include(orderData);
+
+      // Verify data consistency: Firebase Admin SDK result matches internal storage
+      const adminData = doc.data();
+      expect(adminData).to.deep.include(storedData);
+      expect(storedData).to.deep.include(adminData);
     });
   });
 });

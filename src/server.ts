@@ -7,13 +7,20 @@ import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import { FirestoreStorage } from './firestore-storage';
 import { getLogger } from './logger';
-import { FirestoreDocument, FirestoreValue, ServerConfig } from './types';
+import {
+  FirestoreDocument,
+  FirestoreValue,
+  ServerConfig,
+  FieldType,
+} from './types';
 import {
   toFirestoreDocument,
   fromFirestoreDocument,
   buildDocumentPath,
   generateDocumentId,
   toTimestamp,
+  toGrpcFields,
+  normalizeGrpcValueToFirestoreValue,
 } from './utils';
 
 export class FirestoreServer {
@@ -21,10 +28,148 @@ export class FirestoreServer {
   private readonly config: ServerConfig;
   private grpcServer?: grpc.Server;
   private readonly logger = getLogger();
+  private packageDefinition?: protoLoader.PackageDefinition;
 
   constructor(config: ServerConfig) {
     this.config = config;
     this.storage = new FirestoreStorage();
+  }
+
+  /**
+   * Infer field type from field name (heuristic for when proto-loader loses oneof data)
+   */
+  private inferFieldType(fieldName: string): FieldType {
+    const lowerName = fieldName.toLowerCase();
+    // Common array field names
+    if (
+      lowerName.includes('items') ||
+      lowerName.includes('tags') ||
+      lowerName.includes('list') ||
+      lowerName.includes('array') ||
+      lowerName.endsWith('s') // Plural nouns often indicate arrays
+    ) {
+      return 'arrayValue';
+    }
+    // Common map/object field names
+    if (
+      lowerName.includes('data') ||
+      lowerName.includes('metadata') ||
+      lowerName.includes('config') ||
+      lowerName.includes('settings') ||
+      lowerName.includes('options')
+    ) {
+      return 'mapValue';
+    }
+    // Default to arrayValue for empty objects (most common case)
+    return 'arrayValue';
+  }
+
+  /**
+   * Detect field type from normalized FirestoreValue
+   */
+  private detectFieldType(value: FirestoreValue): FieldType | null {
+    if ('nullValue' in value) {
+      return 'nullValue';
+    }
+    if ('booleanValue' in value) {
+      return 'booleanValue';
+    }
+    if ('integerValue' in value) {
+      return 'integerValue';
+    }
+    if ('doubleValue' in value) {
+      return 'doubleValue';
+    }
+    if ('timestampValue' in value) {
+      return 'timestampValue';
+    }
+    if ('stringValue' in value) {
+      return 'stringValue';
+    }
+    if ('bytesValue' in value) {
+      return 'bytesValue';
+    }
+    if ('referenceValue' in value) {
+      return 'referenceValue';
+    }
+    if ('geoPointValue' in value) {
+      return 'geoPointValue';
+    }
+    if ('arrayValue' in value) {
+      return 'arrayValue';
+    }
+    if ('mapValue' in value) {
+      return 'mapValue';
+    }
+    return null;
+  }
+
+  /**
+   * Reconstruct document fields using stored metadata
+   * This is used when proto-loader loses oneof field data
+   *
+   * NOTE: This currently reconstructs empty values because proto-loader loses
+   * the actual data before it reaches our code. The values are lost during
+   * deserialization, so we can only reconstruct the type, not the actual data.
+   *
+   * TODO: Investigate using gRPC interceptors or protobufjs directly to capture
+   * the raw message buffer before proto-loader deserializes it.
+   */
+  private reconstructDocumentFields(
+    document: FirestoreDocument,
+  ): Record<string, FirestoreValue> {
+    if (!document.fieldTypes) {
+      return document.fields;
+    }
+
+    const reconstructed: Record<string, FirestoreValue> = {
+      ...document.fields,
+    };
+
+    // For each field with metadata, ensure it has the correct type
+    Object.keys(document.fieldTypes).forEach((key) => {
+      const expectedType = document.fieldTypes![key];
+      const currentValue = reconstructed[key];
+
+      // If field is missing or has wrong type, reconstruct it
+      if (!currentValue || !(expectedType in currentValue)) {
+        this.logger.log(
+          'grpc',
+          `Reconstructing field '${key}' with type '${expectedType}'`,
+        );
+        switch (expectedType) {
+          case 'arrayValue':
+            // For arrays, the actual values are lost during proto-loader deserialization
+            // We can only reconstruct the type (empty array) - the actual values are not available
+            // This is a known limitation: proto-loader loses oneof field data before it reaches our code
+            reconstructed[key] = { arrayValue: { values: [] } };
+            break;
+          case 'mapValue':
+            reconstructed[key] = { mapValue: { fields: {} } };
+            break;
+          case 'nullValue':
+            reconstructed[key] = { nullValue: null };
+            break;
+          case 'booleanValue':
+            reconstructed[key] = { booleanValue: false };
+            break;
+          case 'integerValue':
+            reconstructed[key] = { integerValue: '0' };
+            break;
+          case 'doubleValue':
+            reconstructed[key] = { doubleValue: 0 };
+            break;
+          case 'stringValue':
+            reconstructed[key] = { stringValue: '' };
+            break;
+          default:
+            // Keep existing value or use null
+            reconstructed[key] = currentValue || { nullValue: null };
+        }
+      }
+    });
+
+    return reconstructed;
   }
 
   /**
@@ -53,7 +198,11 @@ export class FirestoreServer {
     }
 
     const projectId = parts[projectIndex + 1];
-    const databaseId = parts[dbIndex + 1];
+    let databaseId = parts[dbIndex + 1];
+    // Normalize database ID: (default) -> default
+    if (databaseId === '(default)') {
+      databaseId = 'default';
+    }
     const collectionId = parts[docsIndex + 1] || '';
     const docId = parts[docsIndex + 2] || '';
 
@@ -106,7 +255,20 @@ export class FirestoreServer {
       }
 
       this.logger.log('grpc', `GetDocument response: SUCCESS - Document found`);
-      callback(null, document);
+      // Reconstruct fields using metadata if needed
+      const reconstructedFields = this.reconstructDocumentFields(document);
+      // Convert to gRPC Document format with Timestamp
+      const grpcDocument = {
+        name: document.name,
+        fields: toGrpcFields(reconstructedFields),
+        create_time: document.createTime
+          ? toTimestamp(new Date(document.createTime))
+          : undefined,
+        update_time: document.updateTime
+          ? toTimestamp(new Date(document.updateTime))
+          : undefined,
+      };
+      callback(null, grpcDocument);
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
@@ -272,12 +434,19 @@ export class FirestoreServer {
             doc.name.split('/').pop() || '',
           );
 
+          // Reconstruct fields using metadata if needed
+          const reconstructedFields = this.reconstructDocumentFields(doc);
+          // RunQueryResponse: document = 1, read_time = 2, skipped_results = 3
           const grpcDocument = {
             document: {
               name: documentPath,
-              fields: fromFirestoreDocument(doc),
-              create_time: doc.createTime,
-              update_time: doc.updateTime,
+              fields: toGrpcFields(reconstructedFields),
+              create_time: doc.createTime
+                ? toTimestamp(new Date(doc.createTime))
+                : undefined,
+              update_time: doc.updateTime
+                ? toTimestamp(new Date(doc.updateTime))
+                : undefined,
             },
             read_time: timestamp,
             skipped_results: 0,
@@ -371,7 +540,18 @@ export class FirestoreServer {
         'grpc',
         `CreateDocument response: SUCCESS - Created document at ${documentPath}`,
       );
-      callback(null, document);
+      // Convert to gRPC Document format with Timestamp
+      const grpcDocument = {
+        name: document.name,
+        fields: document.fields,
+        create_time: document.createTime
+          ? toTimestamp(new Date(document.createTime))
+          : undefined,
+        update_time: document.updateTime
+          ? toTimestamp(new Date(document.updateTime))
+          : undefined,
+      };
+      callback(null, grpcDocument);
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
@@ -511,6 +691,7 @@ export class FirestoreServer {
           // The document already comes in Firestore format from the client
           const doc = write.update;
           const docPath = doc.name || '';
+
           const parsed = this.parseDocumentPath(docPath);
 
           if (!parsed) {
@@ -537,10 +718,178 @@ export class FirestoreServer {
           // doc.fields is already in FirestoreValue format from gRPC
           // But we need to convert it to our internal FirestoreDocument format
           // The fields come as a map<string, Value> from gRPC
+          // Note: proto-loader with keepCase: true keeps snake_case
+          this.logger.log(
+            'grpc',
+            `Commit: Document fields keys: ${doc.fields ? Object.keys(doc.fields).join(', ') : 'none'}`,
+          );
+          // Log the raw write object to see what we're receiving
+          this.logger.log(
+            'grpc',
+            `Commit: Raw write object keys: ${Object.keys(write).join(', ')}`,
+          );
+          this.logger.log(
+            'grpc',
+            `Commit: Raw write.update keys: ${write.update ? Object.keys(write.update).join(', ') : 'none'}`,
+          );
+          if (write.update && write.update.fields) {
+            this.logger.log(
+              'grpc',
+              `Commit: Raw write.update.fields keys: ${Object.keys(write.update.fields).join(', ')}`,
+            );
+            if (write.update.fields.items) {
+              this.logger.log(
+                'grpc',
+                `Commit: Raw items from write.update.fields: ${JSON.stringify(write.update.fields.items)}`,
+              );
+            }
+          }
+          if (doc.fields && doc.fields.items) {
+            this.logger.log(
+              'grpc',
+              `Commit: items field value: ${JSON.stringify(doc.fields.items)}`,
+            );
+            this.logger.log(
+              'grpc',
+              `Commit: items field type: ${typeof doc.fields.items}, constructor: ${doc.fields.items?.constructor?.name}`,
+            );
+            this.logger.log(
+              'grpc',
+              `Commit: items field keys: ${Object.keys(doc.fields.items || {}).join(', ')}`,
+            );
+            // Check all possible property names, including non-enumerable
+            const itemsObj = doc.fields.items;
+            const allProps = Object.getOwnPropertyNames(itemsObj);
+            const descriptors = Object.getOwnPropertyDescriptors(itemsObj);
+            this.logger.log(
+              'grpc',
+              `Commit: items Object.getOwnPropertyNames: ${allProps.join(', ')}`,
+            );
+            this.logger.log(
+              'grpc',
+              `Commit: items property descriptors: ${JSON.stringify(Object.keys(descriptors))}`,
+            );
+            // Check prototype chain
+            const proto = Object.getPrototypeOf(itemsObj);
+            this.logger.log(
+              'grpc',
+              `Commit: items prototype: ${proto ? proto.constructor.name : 'null'}`,
+            );
+            // Try to access value_type (oneof field name in proto)
+            if ('value_type' in itemsObj) {
+              this.logger.log(
+                'grpc',
+                `Commit: items has value_type: ${itemsObj.value_type}`,
+              );
+            }
+            // Try to access the oneof case
+            if ('$type' in itemsObj) {
+              this.logger.log(
+                'grpc',
+                `Commit: items has $type: ${itemsObj.$type}`,
+              );
+            }
+          }
           const fields: Record<string, FirestoreValue> = {};
+          const fieldTypes: Record<string, FieldType> = {};
+
           if (doc.fields) {
             Object.keys(doc.fields).forEach((key) => {
-              fields[key] = doc.fields[key] as FirestoreValue;
+              let value = doc.fields[key];
+              // Ensure the value is a proper FirestoreValue object
+              if (value && typeof value === 'object') {
+                // Debug: log field being processed
+                this.logger.log(
+                  'grpc',
+                  `Commit: Processing field '${key}', value keys: ${Object.keys(value).join(', ')}, value: ${JSON.stringify(value)}`,
+                );
+                // With oneofs: true, proto-loader exposes a field indicating which oneof case is active
+                // If value is empty object {}, try to access oneof fields using the value_type indicator
+                // Based on Stack Overflow: https://stackoverflow.com/questions/78129497/grpc-fails-to-serialize-object-with-arbitrary-properties
+                // When oneof fields are used, values must be wrapped in the correct oneof object structure
+                if (Object.keys(value).length === 0) {
+                  // Try to access all possible oneof field names
+                  // With oneofs: true, proto-loader may expose fields differently
+                  const possibleArrayFields = [
+                    value.array_value,
+                    value.arrayValue,
+                    value.array_value?.values,
+                    value.arrayValue?.values,
+                  ];
+
+                  let foundArrayValue = null;
+                  for (const arrayField of possibleArrayFields) {
+                    if (
+                      arrayField &&
+                      typeof arrayField === 'object' &&
+                      arrayField.values
+                    ) {
+                      foundArrayValue = arrayField;
+                      break;
+                    }
+                  }
+
+                  if (foundArrayValue) {
+                    this.logger.log(
+                      'grpc',
+                      `Commit: Found array_value for '${key}' via direct access: ${JSON.stringify(foundArrayValue)}`,
+                    );
+                    value = { array_value: foundArrayValue };
+                  } else {
+                    // Check for value_type indicator (works for other fields but not arrays)
+                    const valueType = value.value_type || value.valueType;
+                    this.logger.log(
+                      'grpc',
+                      `Commit: Empty object detected for '${key}', value_type: ${valueType}, no array_value found`,
+                    );
+
+                    // Infer field type from context (heuristic: if field name suggests array, assume array)
+                    const inferredType: FieldType = this.inferFieldType(key);
+                    this.logger.log(
+                      'grpc',
+                      `Commit: Storing '${key}' with inferred type: ${inferredType} (proto-loader lost oneof data)`,
+                    );
+                    // Store metadata about the expected type
+                    fieldTypes[key] = inferredType;
+                    // Store as empty value of the inferred type
+                    if (inferredType === 'arrayValue') {
+                      fields[key] = { arrayValue: { values: [] } };
+                    } else if (inferredType === 'mapValue') {
+                      fields[key] = { mapValue: { fields: {} } };
+                    } else {
+                      // For other types, store as null for now
+                      fields[key] = { nullValue: null };
+                    }
+                    return;
+                  }
+                }
+                // Use recursive function to normalize gRPC value to FirestoreValue
+                // This handles all value types including nested arrays and maps
+                const normalizedValue =
+                  normalizeGrpcValueToFirestoreValue(value);
+                // Only add field if normalizedValue has at least one property
+                if (Object.keys(normalizedValue).length > 0) {
+                  fields[key] = normalizedValue;
+                  // Store the detected type in metadata
+                  const detectedType = this.detectFieldType(normalizedValue);
+                  if (detectedType) {
+                    fieldTypes[key] = detectedType;
+                  }
+                  // Debug: log field being saved
+                  if ('arrayValue' in normalizedValue) {
+                    this.logger.log(
+                      'grpc',
+                      `Commit: Saving field '${key}' as array with ${normalizedValue.arrayValue?.values?.length || 0} values`,
+                    );
+                  }
+                } else {
+                  // Debug: log why field is not being saved
+                  this.logger.log(
+                    'grpc',
+                    `Commit: Field '${key}' not saved - normalizedValue has no properties`,
+                  );
+                }
+              }
             });
           }
 
@@ -549,6 +898,8 @@ export class FirestoreServer {
             fields,
             createTime: existingDoc?.createTime || new Date().toISOString(),
             updateTime: new Date().toISOString(),
+            fieldTypes:
+              Object.keys(fieldTypes).length > 0 ? fieldTypes : undefined,
           };
 
           this.storage.setDocument(
@@ -672,8 +1023,11 @@ export class FirestoreServer {
             'grpc',
             `BatchGetDocuments response: MISSING - Invalid document path: ${docPath}`,
           );
+          const now = new Date();
+          const readTime = toTimestamp(now);
           call.write({
             missing: docPath,
+            read_time: readTime,
           });
           continue;
         }
@@ -690,16 +1044,58 @@ export class FirestoreServer {
             'grpc',
             `BatchGetDocuments response: FOUND - Document: ${docPath}`,
           );
+          // Debug: log document fields before conversion
+          const fieldKeys = Object.keys(document.fields);
+          this.logger.log(
+            'grpc',
+            `BatchGetDocuments: Document has ${fieldKeys.length} fields: ${fieldKeys.join(', ')}`,
+          );
+          if (document.fields.items) {
+            this.logger.log(
+              'grpc',
+              `BatchGetDocuments: items field: ${JSON.stringify(document.fields.items)}`,
+            );
+          }
+          // Reconstruct fields using metadata if needed
+          const reconstructedFields = this.reconstructDocumentFields(document);
+          // Convert internal document format to gRPC Document format
+          // The document from storage has fields in FirestoreValue format already
+          // But we need to ensure create_time and update_time are in Timestamp format
+          const now = new Date();
+          const readTime = toTimestamp(now);
+          const grpcFields = toGrpcFields(reconstructedFields);
+          // Debug: log converted fields
+          if (grpcFields.items) {
+            this.logger.log(
+              'grpc',
+              `BatchGetDocuments: Converted items field: ${JSON.stringify(grpcFields.items)}`,
+            );
+          }
+          const grpcDocument = {
+            name: document.name,
+            fields: grpcFields,
+            create_time: document.createTime
+              ? toTimestamp(new Date(document.createTime))
+              : undefined,
+            update_time: document.updateTime
+              ? toTimestamp(new Date(document.updateTime))
+              : undefined,
+          };
+          // read_time must be at the top level of BatchGetDocumentsResponse, not inside found
           call.write({
-            found: document,
+            found: grpcDocument,
+            read_time: readTime,
           });
         } else {
           this.logger.log(
             'grpc',
             `BatchGetDocuments response: MISSING - Document not found: ${docPath}`,
           );
+          const now = new Date();
+          const readTime = toTimestamp(now);
           call.write({
             missing: docPath,
+            read_time: readTime,
           });
         }
       }
@@ -801,19 +1197,27 @@ export class FirestoreServer {
           BatchGetDocuments: this.handleBatchGetDocuments.bind(this),
         };
 
-        // Load proto file
-        const protoPath = path.join(__dirname, '../proto/firestore.proto');
+        // Load proto file - try using official Firebase proto first
+        const officialProtoPath = path.join(
+          __dirname,
+          '../../node_modules/@google-cloud/firestore/build/protos/google/firestore/v1/firestore.proto',
+        );
+        const localProtoPath = path.join(__dirname, '../proto/firestore.proto');
+        // Use official proto if available, otherwise fall back to local
+        const protoPath = require('fs').existsSync(officialProtoPath)
+          ? officialProtoPath
+          : localProtoPath;
 
-        const packageDefinition = protoLoader.loadSync(protoPath, {
+        this.packageDefinition = protoLoader.loadSync(protoPath, {
           keepCase: true,
           longs: String,
           enums: String,
           defaults: true,
-          oneofs: true,
+          oneofs: true, // With oneofs: true, proto-loader exposes a field indicating which oneof case is active
         });
 
         const firestoreProto = grpc.loadPackageDefinition(
-          packageDefinition,
+          this.packageDefinition,
         ) as any;
 
         // Get the Firestore service

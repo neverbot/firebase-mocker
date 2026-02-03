@@ -114,6 +114,14 @@ export function getFirestoreServer(): FirestoreServer {
 }
 
 /**
+ * Get the Firestore storage instance (for direct access to internal storage)
+ */
+export function getFirestoreStorage() {
+  const server = getFirestoreServer();
+  return server.getStorage();
+}
+
+/**
  * Test function to verify the setup works
  */
 export async function testSetup(): Promise<void> {

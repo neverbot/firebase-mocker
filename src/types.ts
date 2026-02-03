@@ -2,11 +2,26 @@
  * Type definitions for Firestore document structure
  */
 
+export type FieldType =
+  | 'nullValue'
+  | 'booleanValue'
+  | 'integerValue'
+  | 'doubleValue'
+  | 'timestampValue'
+  | 'stringValue'
+  | 'bytesValue'
+  | 'referenceValue'
+  | 'geoPointValue'
+  | 'arrayValue'
+  | 'mapValue';
+
 export interface FirestoreDocument {
   name: string; // Full document path
   fields: Record<string, FirestoreValue>;
   createTime?: string;
   updateTime?: string;
+  // Metadata about field types - used to reconstruct values when proto-loader loses oneof data
+  fieldTypes?: Record<string, FieldType>;
 }
 
 export interface FirestoreValue {

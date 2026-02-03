@@ -260,10 +260,10 @@ message Document {
   map<string, Value> fields = 2;
   
   // The time at which the document was created.
-  string create_time = 3;
+  Timestamp create_time = 3;
   
   // The time at which the document was last changed.
-  string update_time = 4;
+  Timestamp update_time = 4;
 }
 
 // A message that can hold any of the supported value types.
@@ -378,4 +378,12 @@ message BatchGetDocumentsResponse {
     // A document name that was requested but does not exist.
     string missing = 2;
   }
+  
+  // The transaction that was started as part of this request.
+  bytes transaction = 3;
+  
+  // The time at which the document was read.
+  // This may be monotonically increasing; in this case, the previous
+  // BatchGetDocumentsResponse's read_time may be used.
+  Timestamp read_time = 4;
 }

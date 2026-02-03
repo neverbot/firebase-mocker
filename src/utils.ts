@@ -55,6 +55,10 @@ export function toFirestoreValue(value: any): FirestoreValue {
  * Convert Firestore value format to JavaScript value
  */
 export function fromFirestoreValue(firestoreValue: FirestoreValue): any {
+  // Handle null or undefined
+  if (!firestoreValue || typeof firestoreValue !== 'object') {
+    return null;
+  }
   if ('nullValue' in firestoreValue) {
     return null;
   }
@@ -129,6 +133,173 @@ export function generateDocumentId(): string {
     Math.random().toString(36).substring(2, 15) +
     Math.random().toString(36).substring(2, 15)
   );
+}
+
+/**
+ * Normalize a gRPC value (snake_case or camelCase) to FirestoreValue (camelCase)
+ * This is a recursive function that handles all value types including nested arrays and maps
+ */
+export function normalizeGrpcValueToFirestoreValue(value: any): FirestoreValue {
+  if (!value || typeof value !== 'object') {
+    return { nullValue: null };
+  }
+
+  // Check both snake_case and camelCase formats
+  // proto-loader may convert to camelCase depending on keepCase option
+  if ('null_value' in value || 'nullValue' in value) {
+    return { nullValue: null };
+  }
+
+  if ('boolean_value' in value || 'booleanValue' in value) {
+    return { booleanValue: value.boolean_value || value.booleanValue };
+  }
+
+  if ('integer_value' in value || 'integerValue' in value) {
+    return { integerValue: value.integer_value || value.integerValue };
+  }
+
+  if ('double_value' in value || 'doubleValue' in value) {
+    return { doubleValue: value.double_value || value.doubleValue };
+  }
+
+  if ('string_value' in value || 'stringValue' in value) {
+    return { stringValue: value.string_value || value.stringValue };
+  }
+
+  if ('timestamp_value' in value || 'timestampValue' in value) {
+    return {
+      timestampValue: value.timestamp_value || value.timestampValue,
+    };
+  }
+
+  if ('bytes_value' in value || 'bytesValue' in value) {
+    return { bytesValue: value.bytes_value || value.bytesValue };
+  }
+
+  if ('reference_value' in value || 'referenceValue' in value) {
+    return { referenceValue: value.reference_value || value.referenceValue };
+  }
+
+  if ('geo_point_value' in value || 'geoPointValue' in value) {
+    return { geoPointValue: value.geo_point_value || value.geoPointValue };
+  }
+
+  if ('array_value' in value || 'arrayValue' in value) {
+    const arrayVal = value.array_value || value.arrayValue;
+    if (arrayVal && arrayVal.values) {
+      return {
+        arrayValue: {
+          values: arrayVal.values.map(normalizeGrpcValueToFirestoreValue),
+        },
+      };
+    }
+    return { arrayValue: { values: [] } };
+  }
+
+  if ('map_value' in value || 'mapValue' in value) {
+    const mapVal = value.map_value || value.mapValue;
+    if (mapVal && mapVal.fields) {
+      const normalizedFields: Record<string, FirestoreValue> = {};
+      Object.keys(mapVal.fields).forEach((key) => {
+        normalizedFields[key] = normalizeGrpcValueToFirestoreValue(
+          mapVal.fields[key],
+        );
+      });
+      return { mapValue: { fields: normalizedFields } };
+    }
+    return { mapValue: { fields: {} } };
+  }
+
+  // If nothing matched, return nullValue
+  return { nullValue: null };
+}
+
+/**
+ * Convert FirestoreValue (camelCase) to gRPC value (snake_case)
+ * This is a recursive function that handles all value types including nested arrays and maps
+ */
+export function toGrpcValue(firestoreValue: FirestoreValue): any {
+  if (!firestoreValue || typeof firestoreValue !== 'object') {
+    return { null_value: null };
+  }
+
+  if ('nullValue' in firestoreValue) {
+    return { null_value: null };
+  }
+
+  if ('booleanValue' in firestoreValue) {
+    return { boolean_value: firestoreValue.booleanValue };
+  }
+
+  if ('integerValue' in firestoreValue) {
+    return { integer_value: firestoreValue.integerValue };
+  }
+
+  if ('doubleValue' in firestoreValue) {
+    return { double_value: firestoreValue.doubleValue };
+  }
+
+  if ('stringValue' in firestoreValue) {
+    return { string_value: firestoreValue.stringValue };
+  }
+
+  if ('timestampValue' in firestoreValue) {
+    return { timestamp_value: firestoreValue.timestampValue };
+  }
+
+  if ('bytesValue' in firestoreValue) {
+    return { bytes_value: firestoreValue.bytesValue };
+  }
+
+  if ('referenceValue' in firestoreValue) {
+    return { reference_value: firestoreValue.referenceValue };
+  }
+
+  if ('geoPointValue' in firestoreValue) {
+    return { geo_point_value: firestoreValue.geoPointValue };
+  }
+
+  if ('arrayValue' in firestoreValue) {
+    if (firestoreValue.arrayValue && firestoreValue.arrayValue.values) {
+      return {
+        array_value: {
+          values: firestoreValue.arrayValue.values.map(toGrpcValue),
+        },
+      };
+    }
+    return { array_value: { values: [] } };
+  }
+
+  if ('mapValue' in firestoreValue) {
+    if (firestoreValue.mapValue && firestoreValue.mapValue.fields) {
+      return {
+        map_value: {
+          fields: toGrpcFields(firestoreValue.mapValue.fields),
+        },
+      };
+    }
+    return { map_value: { fields: {} } };
+  }
+
+  return { null_value: null };
+}
+
+/**
+ * Convert FirestoreValue from camelCase to snake_case for gRPC responses
+ * Firebase Admin SDK expects snake_case in gRPC messages
+ */
+export function toGrpcFields(
+  fields: Record<string, FirestoreValue>,
+): Record<string, any> {
+  const grpcFields: Record<string, any> = {};
+  Object.keys(fields).forEach((key) => {
+    const grpcValue = toGrpcValue(fields[key]);
+    // Only add if grpcValue has at least one property
+    if (Object.keys(grpcValue).length > 0) {
+      grpcFields[key] = grpcValue;
+    }
+  });
+  return grpcFields;
 }
 
 /**
