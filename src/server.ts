@@ -43,7 +43,6 @@ export class FirestoreServer {
 
   /**
    * Extract array_value from a protobufjs Message object
-   * This tries multiple methods to access the oneof field
    */
   private extractArrayValueFromMessage(
     valueMessage: any,
@@ -123,29 +122,18 @@ export class FirestoreServer {
             oneofs: true,
           });
 
-          this.logger.log(
-            'grpc',
-            `Commit: Successfully extracted array_value for '${fieldName}' from message: ${JSON.stringify(arrayValueObj)}`,
-          );
-
           return arrayValueObj;
         }
       }
 
       return null;
     } catch (e) {
-      this.logger.log(
-        'grpc',
-        `Commit: Error in extractArrayValueFromMessage for '${fieldName}': ${e instanceof Error ? e.message : String(e)}`,
-      );
       return null;
     }
   }
 
   /**
    * Manually decode array_value from buffer
-   * This is a workaround for protobufjs not decoding oneof fields correctly
-   * We search for the field in the buffer and decode it manually
    */
   private manualDecodeArrayValue(
     buffer: Buffer,
@@ -230,11 +218,6 @@ export class FirestoreServer {
                     },
                   );
 
-                  this.logger.log(
-                    'grpc',
-                    `Commit: Manually decoded array_value for '${fieldName}': ${JSON.stringify(arrayValueObj)}`,
-                  );
-
                   return arrayValueObj;
                 } catch (e) {
                   // Decoding failed, continue searching
@@ -249,10 +232,6 @@ export class FirestoreServer {
 
       return null;
     } catch (e) {
-      this.logger.log(
-        'grpc',
-        `Commit: Error in manualDecodeArrayValue for '${fieldName}': ${e instanceof Error ? e.message : String(e)}`,
-      );
       return null;
     }
   }
@@ -310,31 +289,17 @@ export class FirestoreServer {
         },
         requestDeserialize: (buffer: Buffer): any => {
           // Deserialize using protobufjs
-          // IMPORTANT: For oneof fields, protobufjs may not expose them correctly
-          // We need to access them directly from the decoded message before toObject()
           const message = requestType.decode(buffer);
 
-          // For Commit requests, try to access oneof fields directly from the message
-          // BEFORE calling toObject(), as toObject() may lose oneof information
+          // For Commit requests, extract oneof fields directly from protobufjs Message objects
+          // before converting to plain object, as toObject() may lose oneof information
           if (methodName === 'Commit' && this.ValueType && this.protobufRoot) {
             const rawMessage = message as any;
             if (rawMessage.writes && Array.isArray(rawMessage.writes)) {
-              // Process writes to extract oneof fields directly from protobufjs Message objects
-              rawMessage.writes.forEach((write: any, writeIndex: number) => {
+              rawMessage.writes.forEach((write: any) => {
                 if (write && write.update && write.update.fields) {
                   const fieldsMessage = write.update.fields;
-                  // IMPORTANT: In protobufjs, map fields are stored as plain objects, not as protobufjs Map objects
-                  // However, the VALUES within the map (Value messages) should still be protobufjs Message objects
-                  // We need to check if fieldsMessage is a Map or a plain object
-                  this.logger.log(
-                    'grpc',
-                    `Commit: fieldsMessage type: ${typeof fieldsMessage}, constructor: ${fieldsMessage?.constructor?.name}, is Map: ${fieldsMessage instanceof Map}`,
-                  );
-
                   if (fieldsMessage && typeof fieldsMessage === 'object') {
-                    // fieldsMessage is a plain object (map<string, Value> converted by protobufjs)
-                    // The VALUES in this map should still be protobufjs Message objects
-                    // Get all field names from the object
                     const fieldNames = Object.keys(fieldsMessage).filter(
                       (key) =>
                         !key.startsWith('$') &&
@@ -342,172 +307,50 @@ export class FirestoreServer {
                         key !== 'toObject',
                     );
 
-                    this.logger.log(
-                      'grpc',
-                      `Commit: Found ${fieldNames.length} fields in document: ${fieldNames.join(', ')}`,
-                    );
-
-                    // For each field, try to access the Value message directly
                     fieldNames.forEach((fieldName: string) => {
                       try {
-                        // Get the Value message for this field
                         const valueMessage = fieldsMessage[fieldName];
-
-                        // Log detailed information about the value message
-                        if (
-                          fieldName === 'items' ||
-                          fieldName.includes('array') ||
-                          fieldName.includes('list')
-                        ) {
-                          this.logger.log(
-                            'grpc',
-                            `Commit: Field '${fieldName}' - type: ${typeof valueMessage}, constructor: ${valueMessage?.constructor?.name}, has $type: ${!!valueMessage?.$type}, keys: ${Object.keys(valueMessage || {}).join(', ')}`,
-                          );
-
-                          // Check if it's a protobufjs Message object
-                          if (valueMessage && valueMessage.$type) {
-                            this.logger.log(
-                              'grpc',
-                              `Commit: Field '${fieldName}' IS a protobufjs Message, $type name: ${valueMessage.$type?.name}`,
-                            );
-
-                            // Try to access all properties of the message
-                            const allProps =
-                              Object.getOwnPropertyNames(valueMessage);
-                            const allKeys = Object.keys(valueMessage);
-                            this.logger.log(
-                              'grpc',
-                              `Commit: Field '${fieldName}' - all properties: ${allProps.join(', ')}, all keys: ${allKeys.join(', ')}`,
-                            );
-
-                            // Check if oneof is set
-                            if (valueMessage.$oneof) {
-                              this.logger.log(
-                                'grpc',
-                                `Commit: Field '${fieldName}' has $oneof: ${JSON.stringify(valueMessage.$oneof)}`,
-                              );
-                            }
-
-                            // Try to access array_value directly using different methods
-                            const arrayValue1 = valueMessage.array_value;
-                            const arrayValue2 = valueMessage.arrayValue;
-                            const arrayValue3 = valueMessage[9]; // Field number
-                            const arrayValue4 = valueMessage['9'];
-
-                            // Try to access internal protobufjs properties
-                            const internalFields = valueMessage.$fields;
-                            const internalOneof = valueMessage.$oneof;
-                            const internalOneofs = valueMessage.$oneofs;
-
-                            this.logger.log(
-                              'grpc',
-                              `Commit: Field '${fieldName}' array_value access - array_value: ${!!arrayValue1}, arrayValue: ${!!arrayValue2}, [9]: ${!!arrayValue3}, ['9']: ${!!arrayValue4}`,
-                            );
-
-                            this.logger.log(
-                              'grpc',
-                              `Commit: Field '${fieldName}' internal props - $fields: ${!!internalFields}, $oneof: ${!!internalOneof ? JSON.stringify(internalOneof) : 'null'}, $oneofs: ${!!internalOneofs ? JSON.stringify(internalOneofs) : 'null'}`,
-                            );
-
-                            // Try to access via field descriptor
-                            const valueType = this.ValueType!;
-                            if (valueType && valueType.fields) {
-                              const arrayValueField =
-                                valueType.fields['array_value'];
-                              if (arrayValueField) {
-                                this.logger.log(
-                                  'grpc',
-                                  `Commit: Field '${fieldName}' array_value field descriptor - id: ${arrayValueField.id}, name: ${arrayValueField.name}`,
-                                );
-
-                                // Try to get the field value using the descriptor
-                                try {
-                                  // protobufjs may store fields in $fields by ID
-                                  if (
-                                    internalFields &&
-                                    internalFields[arrayValueField.id]
-                                  ) {
-                                    const fieldValue =
-                                      internalFields[arrayValueField.id];
-                                    this.logger.log(
-                                      'grpc',
-                                      `Commit: Field '${fieldName}' found array_value in $fields[${arrayValueField.id}]: ${JSON.stringify(fieldValue)}`,
-                                    );
-                                    // Store it for later use
-                                    if (!valueMessage._decodedArrayValue) {
-                                      valueMessage._decodedArrayValue =
-                                        fieldValue;
-                                    }
-                                  }
-                                } catch (e) {
-                                  this.logger.log(
-                                    'grpc',
-                                    `Commit: Field '${fieldName}' error accessing $fields: ${e instanceof Error ? e.message : String(e)}`,
-                                  );
-                                }
-                              }
-                            }
-                          } else {
-                            this.logger.log(
-                              'grpc',
-                              `Commit: Field '${fieldName}' is NOT a protobufjs Message (no $type property)`,
-                            );
-                          }
-                        }
-
                         if (valueMessage && valueMessage.$type) {
-                          // This is a protobufjs Message object
-                          // Try to access oneof fields directly
                           const valueType = this.ValueType!;
 
-                          // Method 1: Check if oneof case is set
+                          // Try to access oneof fields via field descriptors
                           if (
                             valueType.oneofsArray &&
                             valueType.oneofsArray.length > 0
                           ) {
-                            const oneof = valueType.oneofsArray[0]; // value_type oneof
+                            const oneof = valueType.oneofsArray[0];
                             if (oneof && oneof.name) {
-                              // Try to get the oneof case
                               const oneofCase = valueMessage[oneof.name];
                               if (
                                 oneofCase === 'array_value' ||
                                 oneofCase === 'arrayValue'
                               ) {
-                                // Try to get the array_value field directly
                                 const arrayValueField =
                                   valueType.fields['array_value'];
                                 if (arrayValueField) {
-                                  // Try to access the field value using the field descriptor
                                   try {
-                                    // protobufjs stores field values in a special way
-                                    // Try accessing via field ID
                                     const fieldId = arrayValueField.id;
                                     const arrayValue =
                                       valueMessage[fieldId] ||
                                       valueMessage['array_value'] ||
                                       valueMessage['arrayValue'];
 
-                                    if (arrayValue) {
-                                      this.logger.log(
-                                        'grpc',
-                                        `Commit: Found array_value for '${fieldName}' via field ID ${fieldId}: ${JSON.stringify(arrayValue)}`,
-                                      );
-                                      // Store it in the message for later use
-                                      if (!valueMessage._decodedArrayValue) {
-                                        valueMessage._decodedArrayValue =
-                                          arrayValue;
-                                      }
+                                    if (
+                                      arrayValue &&
+                                      !valueMessage._decodedArrayValue
+                                    ) {
+                                      valueMessage._decodedArrayValue =
+                                        arrayValue;
                                     }
                                   } catch (e) {
-                                    // Field access failed
+                                    // Field access failed, continue
                                   }
                                 }
                               }
                             }
                           }
 
-                          // Method 2: Try to access all oneof fields and check which one is set
-                          // protobufjs may store oneof fields in $oneof property
+                          // Try accessing via $oneof property
                           if (valueMessage.$oneof) {
                             const oneofObj = valueMessage.$oneof;
                             Object.keys(oneofObj).forEach(
@@ -516,23 +359,15 @@ export class FirestoreServer {
                                   oneofObj[oneofName] === 'array_value' ||
                                   oneofObj[oneofName] === 'arrayValue'
                                 ) {
-                                  this.logger.log(
-                                    'grpc',
-                                    `Commit: Found oneof case 'array_value' for '${fieldName}' in $oneof property`,
-                                  );
-                                  // Try to get the actual array value
                                   const arrayValue =
                                     valueMessage.array_value ||
                                     valueMessage.arrayValue;
-                                  if (arrayValue) {
-                                    this.logger.log(
-                                      'grpc',
-                                      `Commit: Successfully extracted array_value for '${fieldName}' from $oneof: ${JSON.stringify(arrayValue)}`,
-                                    );
-                                    if (!valueMessage._decodedArrayValue) {
-                                      valueMessage._decodedArrayValue =
-                                        arrayValue;
-                                    }
+                                  if (
+                                    arrayValue &&
+                                    !valueMessage._decodedArrayValue
+                                  ) {
+                                    valueMessage._decodedArrayValue =
+                                      arrayValue;
                                   }
                                 }
                               },
@@ -549,273 +384,20 @@ export class FirestoreServer {
             }
           }
 
-          // Store the original buffer for manual decoding of array_value fields
-          // We'll pass it to handleCommit so it can manually decode arrays
-          const originalBuffer = buffer;
-
-          // For Commit requests, check if buffer contains array data
-          if (methodName === 'Commit') {
-            const bufferStr = buffer.toString('hex');
-            const bufferAscii = buffer.toString(
-              'ascii',
-              0,
-              Math.min(500, buffer.length),
-            );
-            const item1Hex = Buffer.from('item-1', 'utf8').toString('hex');
-            const item2Hex = Buffer.from('item-2', 'utf8').toString('hex');
-            const item1Index = bufferStr.indexOf(item1Hex);
-            const item2Index = bufferStr.indexOf(item2Hex);
-
-            // Also check for the string directly in ASCII
-            const item1AsciiIndex = bufferAscii.indexOf('item-1');
-            const item2AsciiIndex = bufferAscii.indexOf('item-2');
-
-            if (
-              item1Index !== -1 ||
-              item2Index !== -1 ||
-              item1AsciiIndex !== -1 ||
-              item2AsciiIndex !== -1
-            ) {
-              this.logger.log(
-                'grpc',
-                `Commit: Buffer contains array data! item-1 hex at ${item1Index}, item-2 hex at ${item2Index}, item-1 ascii at ${item1AsciiIndex}, item-2 ascii at ${item2AsciiIndex}, buffer length: ${buffer.length}`,
-              );
-              // Log first 200 bytes of buffer in hex for debugging
-              this.logger.log(
-                'grpc',
-                `Commit: Buffer first 200 bytes (hex): ${buffer.slice(0, 200).toString('hex')}`,
-              );
-            } else {
-              this.logger.log(
-                'grpc',
-                `Commit: Buffer does NOT contain array data (item-1 or item-2 not found), buffer length: ${buffer.length}`,
-              );
-              // Log first 200 bytes of buffer in hex for debugging
-              this.logger.log(
-                'grpc',
-                `Commit: Buffer first 200 bytes (hex): ${buffer.slice(0, Math.min(200, buffer.length)).toString('hex')}`,
-              );
-              // Also log as ASCII to see if we can spot the issue
-              this.logger.log(
-                'grpc',
-                `Commit: Buffer first 200 bytes (ascii, printable only): ${bufferAscii.replace(/[^\x20-\x7E]/g, '.')}`,
-              );
-            }
-          }
-
-          // For Commit requests, we need to manually decode array_value fields
-          // because protobufjs doesn't decode oneof fields correctly
-          if (methodName === 'Commit' && this.ValueType && this.protobufRoot) {
-            // Try to manually decode array_value fields from the buffer
-            // by finding the field in the buffer and decoding it separately
-            const rawMessage = message as any;
-            if (rawMessage.writes) {
-              // Process each write to manually decode array_value fields
-              rawMessage.writes = rawMessage.writes.map(
-                (write: any, writeIndex: number) => {
-                  if (write.update && write.update.fields) {
-                    const fields: any = {};
-                    Object.keys(write.update.fields).forEach((key) => {
-                      const fieldValue = write.update.fields[key];
-                      // If field is empty, try to decode it manually from the raw message
-                      if (
-                        fieldValue &&
-                        typeof fieldValue === 'object' &&
-                        Object.keys(fieldValue).length === 0
-                      ) {
-                        // Get the raw Value message from the decoded message
-                        const rawWrite = rawMessage.writes?.[writeIndex];
-                        const rawFieldValue = rawWrite?.update?.fields?.[key];
-
-                        if (rawFieldValue) {
-                          // rawFieldValue is a protobufjs Message object
-                          // Try to decode array_value directly from it
-                          const decodedArray =
-                            this.extractArrayValueFromMessage(
-                              rawFieldValue,
-                              key,
-                            );
-                          if (decodedArray) {
-                            fields[key] = { arrayValue: decodedArray };
-                          } else {
-                            // Try manual buffer decoding as fallback
-                            const decodedArrayFromBuffer =
-                              this.manualDecodeArrayValue(
-                                originalBuffer,
-                                key,
-                                writeIndex,
-                              );
-                            if (decodedArrayFromBuffer) {
-                              fields[key] = {
-                                arrayValue: decodedArrayFromBuffer,
-                              };
-                            } else {
-                              fields[key] = fieldValue;
-                            }
-                          }
-                        } else {
-                          fields[key] = fieldValue;
-                        }
-                      } else {
-                        fields[key] = fieldValue;
-                      }
-                    });
-                    return {
-                      ...write,
-                      update: {
-                        ...write.update,
-                        fields,
-                      },
-                    };
-                  }
-                  return write;
-                },
-              );
-            }
-          }
-
           // Convert to plain object with all fields, including oneof fields
-          // Based on Next.js article: https://mojoauth.com/serialize-and-deserialize/serialize-and-deserialize-protobuf-with-nextjs
-          // The article shows using decode() then toObject() with proper options
-          // IMPORTANT: For oneof fields, we need to ensure oneofs: true is set
-          // However, if protobufjs didn't decode the oneof field correctly during decode(),
-          // toObject() won't be able to recover it
           const obj = requestType.toObject(message, {
             longs: String,
             enums: String,
             bytes: String,
-            defaults: false, // Don't include default values
+            defaults: false,
             arrays: true,
             objects: true,
-            oneofs: true, // This is crucial - protobufjs handles oneofs correctly!
+            oneofs: true,
           });
 
-          // DEBUG: For Commit requests, check if oneof fields were correctly converted
-          if (methodName === 'Commit' && obj.writes) {
-            obj.writes.forEach((write: any, writeIndex: number) => {
-              if (write && write.update && write.update.fields) {
-                Object.keys(write.update.fields).forEach(
-                  (fieldName: string) => {
-                    if (
-                      fieldName === 'items' ||
-                      fieldName.includes('array') ||
-                      fieldName.includes('list')
-                    ) {
-                      const fieldValue = write.update.fields[fieldName];
-                      this.logger.log(
-                        'grpc',
-                        `Commit: After toObject() - Field '${fieldName}' value: ${JSON.stringify(fieldValue)}, has array_value: ${!!fieldValue?.array_value}, has arrayValue: ${!!fieldValue?.arrayValue}`,
-                      );
-                    }
-                  },
-                );
-              }
-            });
-          }
-
-          // For Commit requests, also try accessing oneof fields directly from the message
-          // protobufjs Message objects may expose oneof fields differently
-          if (methodName === 'Commit' && this.protobufRoot) {
-            const rawMessage = message as any;
-            // Try to access oneof fields directly from the message before toObject
-            // protobufjs may store oneof fields in a special property
-            if (rawMessage.writes && Array.isArray(rawMessage.writes)) {
-              rawMessage.writes.forEach((write: any, writeIndex: number) => {
-                if (write && write.update && write.update.fields) {
-                  // Access fields directly from the protobufjs Message object
-                  // before it's converted to plain object
-                  const fieldsMessage = write.update.fields;
-                  if (fieldsMessage && typeof fieldsMessage === 'object') {
-                    // Try to get field descriptors and access values directly
-                    Object.keys(fieldsMessage).forEach((fieldName: string) => {
-                      const fieldValue = fieldsMessage[fieldName];
-                      // If fieldValue is a protobufjs Message, try to access oneof directly
-                      if (
-                        fieldValue &&
-                        typeof fieldValue === 'object' &&
-                        fieldValue.$type
-                      ) {
-                        // protobufjs Message objects have $type property
-                        // Try to access oneof fields via field descriptors
-                        const valueType = this.ValueType;
-                        if (valueType && valueType.oneofsArray) {
-                          // Check each oneof case
-                          valueType.oneofsArray.forEach((oneof: any) => {
-                            if (oneof.name === 'value_type') {
-                              // Try to get the oneof case value
-                              const oneofCase = fieldValue[oneof.name];
-                              if (oneofCase) {
-                                this.logger.log(
-                                  'grpc',
-                                  `Commit: Found oneof case '${oneofCase}' for field '${fieldName}' directly from message`,
-                                );
-                                // Try to access the actual field value based on the oneof case
-                                if (
-                                  oneofCase === 'array_value' ||
-                                  oneofCase === 'arrayValue'
-                                ) {
-                                  const arrayValue =
-                                    fieldValue.array_value ||
-                                    fieldValue.arrayValue;
-                                  if (arrayValue) {
-                                    this.logger.log(
-                                      'grpc',
-                                      `Commit: Successfully accessed array_value for '${fieldName}' directly from message: ${JSON.stringify(arrayValue)}`,
-                                    );
-                                    // Update obj with the correctly decoded array
-                                    if (
-                                      obj.writes &&
-                                      obj.writes[writeIndex] &&
-                                      obj.writes[writeIndex].update
-                                    ) {
-                                      if (
-                                        !obj.writes[writeIndex].update.fields
-                                      ) {
-                                        obj.writes[writeIndex].update.fields =
-                                          {};
-                                      }
-                                      obj.writes[writeIndex].update.fields[
-                                        fieldName
-                                      ] = {
-                                        arrayValue: arrayValue,
-                                      };
-                                    }
-                                  } else {
-                                    this.logger.log(
-                                      'grpc',
-                                      `Commit: oneof case is 'array_value' for '${fieldName}' but arrayValue is null/undefined`,
-                                    );
-                                  }
-                                }
-                              } else {
-                                // Log when oneof case is not found for debugging
-                                if (
-                                  fieldName === 'items' ||
-                                  fieldName.includes('array') ||
-                                  fieldName.includes('list')
-                                ) {
-                                  this.logger.log(
-                                    'grpc',
-                                    `Commit: No oneof case found for field '${fieldName}' (expected array_value). Field value type: ${typeof fieldValue}, has $type: ${!!fieldValue.$type}, keys: ${Object.keys(fieldValue || {}).join(', ')}`,
-                                  );
-                                }
-                              }
-                            }
-                          });
-                        }
-                      }
-                    });
-                  }
-                }
-              });
-            }
-          }
-
-          // For Commit requests, try to use @google-cloud/firestore's Serializer
-          // to properly decode array_value fields that protobufjs loses
+          // For Commit requests, use @google-cloud/firestore's Serializer to decode arrays
           if (methodName === 'Commit' && obj.writes) {
             try {
-              // Import @google-cloud/firestore's Serializer and convert utilities
               const {
                 Serializer,
               } = require('@google-cloud/firestore/build/src/serializer');
@@ -823,17 +405,13 @@ export class FirestoreServer {
                 detectValueType,
               } = require('@google-cloud/firestore/build/src/convert');
 
-              // Create a mock Firestore instance for the Serializer
               const mockFirestore = {
                 _settings: { useBigInt: false },
                 doc: (path: string) => ({ path }),
               };
               const serializer = new Serializer(mockFirestore as any);
-
-              // Access raw message to get oneof fields
               const rawMessage = message as any;
 
-              // Process each write to decode array_value fields using the Serializer
               obj.writes = obj.writes.map((write: any, index: number) => {
                 if (write.update && write.update.fields) {
                   const fields: any = {};
@@ -842,20 +420,13 @@ export class FirestoreServer {
                   Object.keys(write.update.fields).forEach((key) => {
                     const fieldValue = write.update.fields[key];
 
-                    // Check if this field is an array using detectValueType
                     try {
                       const valueType = detectValueType(fieldValue);
-                      this.logger.log(
-                        'grpc',
-                        `Commit: Field '${key}' detected type: ${valueType}, value: ${JSON.stringify(fieldValue)}`,
-                      );
 
                       if (valueType === 'arrayValue') {
-                        // Try to get the raw Value message from protobufjs
                         const rawField = rawWrite?.update?.fields?.[key];
 
                         if (rawField) {
-                          // Try to convert rawField to object using protobufjs
                           const rawFieldObj = this.ValueType!.toObject(
                             rawField,
                             {
@@ -869,19 +440,8 @@ export class FirestoreServer {
                             },
                           );
 
-                          this.logger.log(
-                            'grpc',
-                            `Commit: Raw field '${key}' as object: ${JSON.stringify(rawFieldObj)}`,
-                          );
-
-                          // Use serializer's decodeValue to properly decode the array
                           try {
                             const decoded = serializer.decodeValue(rawFieldObj);
-                            this.logger.log(
-                              'grpc',
-                              `Commit: Using @google-cloud/firestore Serializer to decode '${key}': ${JSON.stringify(decoded)}`,
-                            );
-                            // Convert back to FirestoreValue format
                             const { toFirestoreValue } = require('./utils');
                             fields[key] = {
                               arrayValue: {
@@ -891,26 +451,15 @@ export class FirestoreServer {
                               },
                             };
                           } catch (e) {
-                            this.logger.log(
-                              'grpc',
-                              `Commit: Serializer.decodeValue failed for '${key}': ${e instanceof Error ? e.message : String(e)}`,
-                            );
-                            // If decoding fails, keep original
                             fields[key] = fieldValue;
                           }
                         } else {
-                          // No raw field available, keep original
                           fields[key] = fieldValue;
                         }
                       } else {
                         fields[key] = fieldValue;
                       }
                     } catch (e) {
-                      // detectValueType failed, keep original
-                      this.logger.log(
-                        'grpc',
-                        `Commit: detectValueType failed for '${key}': ${e instanceof Error ? e.message : String(e)}`,
-                      );
                       fields[key] = fieldValue;
                     }
                   });
@@ -926,20 +475,8 @@ export class FirestoreServer {
                 return write;
               });
             } catch (e) {
-              // If @google-cloud/firestore's serializer is not available, log and continue
-              this.logger.log(
-                'grpc',
-                `Commit: Could not use @google-cloud/firestore serializer: ${e instanceof Error ? e.message : String(e)}`,
-              );
+              // Serializer not available, continue with original data
             }
-          }
-
-          // Log for debugging Commit requests
-          if (methodName === 'Commit' && obj.writes) {
-            this.logger.log(
-              'grpc',
-              `Commit deserialized with protobufjs: ${JSON.stringify(obj.writes[0]?.update?.fields || {})}`,
-            );
           }
 
           return obj;
@@ -1304,12 +841,6 @@ export class FirestoreServer {
         request.structured_query || request.structuredQuery || {};
       const from = structuredQuery.from;
 
-      // Debug: log full request structure
-      this.logger.log(
-        'grpc',
-        `RunQuery full request keys: ${Object.keys(request).join(', ')}, structured_query present: ${!!request.structured_query}, structured_query keys: ${request.structured_query ? Object.keys(request.structured_query).join(', ') : 'null'}`,
-      );
-
       // Normalize parent path: replace (default) with default
       parent = parent.replace('/databases/(default)/', '/databases/default/');
 
@@ -1350,12 +881,6 @@ export class FirestoreServer {
         }
       }
 
-      // Debug: log the full structured_query to understand the structure
-      this.logger.log(
-        'grpc',
-        `RunQuery request: parent=${parent}, collectionId=${collectionId || '(empty)'}, structuredQuery keys: ${Object.keys(structuredQuery).join(', ')}, from type: ${typeof from}, from keys: ${from ? Object.keys(from).join(', ') : 'null'}`,
-      );
-
       // Get documents from storage
       const documents = this.storage.listDocuments(
         projectId,
@@ -1382,10 +907,6 @@ export class FirestoreServer {
           skippedResults: 0,
         };
         call.write(emptyResponse);
-        this.logger.log(
-          'grpc',
-          `RunQuery response: SUCCESS - Empty collection (0 documents)`,
-        );
       } else {
         // Send each document as a stream response
         documents.forEach((doc) => {
@@ -1419,10 +940,6 @@ export class FirestoreServer {
 
           call.write(grpcDocument);
         });
-        this.logger.log(
-          'grpc',
-          `RunQuery response: SUCCESS - Streamed ${documents.length} documents`,
-        );
       }
 
       // End the stream
@@ -1663,58 +1180,7 @@ export class FirestoreServer {
       };
 
       // Process each write
-      // If we have protobufjs loaded, try to deserialize the request manually
-      // to capture oneof fields that proto-loader loses
-      const writesToProcess = writes;
-      if (this.protobufRoot && writes.length > 0) {
-        try {
-          // Get the CommitRequest message type
-          const CommitRequestType = this.protobufRoot.lookupType(
-            'google.firestore.v1.CommitRequest',
-          );
-          if (CommitRequestType) {
-            // Try to serialize the request and deserialize it with protobufjs
-            // But we don't have the raw buffer, so we'll work with what we have
-            // For now, we'll process writes as-is and handle empty objects separately
-            this.logger.log(
-              'grpc',
-              'Commit: protobufjs available, will attempt manual deserialization for empty fields',
-            );
-          }
-        } catch (error) {
-          // Continue with proto-loader deserialization
-          this.logger.log(
-            'grpc',
-            `Commit: protobufjs lookup failed, using proto-loader data: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-      }
-
-      for (const write of writesToProcess) {
-        // Log all write properties to check for update_transforms or other fields
-        this.logger.log(
-          'grpc',
-          `Commit: Raw write object keys: ${Object.keys(write).join(', ')}`,
-        );
-
-        // Check if arrays are sent in update_transforms instead of update.fields
-        if (write.update_transforms && Array.isArray(write.update_transforms)) {
-          this.logger.log(
-            'grpc',
-            `Commit: Found update_transforms with ${write.update_transforms.length} transforms`,
-          );
-          write.update_transforms.forEach((transform: any, index: number) => {
-            this.logger.log(
-              'grpc',
-              `Commit: Transform ${index}: field_path=${transform.field_path}, transform_type=${Object.keys(
-                transform,
-              )
-                .filter((k) => k !== 'field_path')
-                .join(', ')}`,
-            );
-          });
-        }
-
+      for (const write of writes) {
         if (write.update) {
           // Update or create document
           // The document already comes in Firestore format from the client
@@ -1745,80 +1211,6 @@ export class FirestoreServer {
 
           // Convert Firestore Document to our internal format
           // doc.fields is already in FirestoreValue format from gRPC
-          // But we need to convert it to our internal FirestoreDocument format
-          // The fields come as a map<string, Value> from gRPC
-          // Note: proto-loader with keepCase: true keeps snake_case
-          this.logger.log(
-            'grpc',
-            `Commit: Document fields keys: ${doc.fields ? Object.keys(doc.fields).join(', ') : 'none'}`,
-          );
-          // Log the raw write object to see what we're receiving
-          this.logger.log(
-            'grpc',
-            `Commit: Raw write object keys: ${Object.keys(write).join(', ')}`,
-          );
-          this.logger.log(
-            'grpc',
-            `Commit: Raw write.update keys: ${write.update ? Object.keys(write.update).join(', ') : 'none'}`,
-          );
-          if (write.update && write.update.fields) {
-            this.logger.log(
-              'grpc',
-              `Commit: Raw write.update.fields keys: ${Object.keys(write.update.fields).join(', ')}`,
-            );
-            if (write.update.fields.items) {
-              this.logger.log(
-                'grpc',
-                `Commit: Raw items from write.update.fields: ${JSON.stringify(write.update.fields.items)}`,
-              );
-            }
-          }
-          if (doc.fields && doc.fields.items) {
-            this.logger.log(
-              'grpc',
-              `Commit: items field value: ${JSON.stringify(doc.fields.items)}`,
-            );
-            this.logger.log(
-              'grpc',
-              `Commit: items field type: ${typeof doc.fields.items}, constructor: ${doc.fields.items?.constructor?.name}`,
-            );
-            this.logger.log(
-              'grpc',
-              `Commit: items field keys: ${Object.keys(doc.fields.items || {}).join(', ')}`,
-            );
-            // Check all possible property names, including non-enumerable
-            const itemsObj = doc.fields.items;
-            const allProps = Object.getOwnPropertyNames(itemsObj);
-            const descriptors = Object.getOwnPropertyDescriptors(itemsObj);
-            this.logger.log(
-              'grpc',
-              `Commit: items Object.getOwnPropertyNames: ${allProps.join(', ')}`,
-            );
-            this.logger.log(
-              'grpc',
-              `Commit: items property descriptors: ${JSON.stringify(Object.keys(descriptors))}`,
-            );
-            // Check prototype chain
-            const proto = Object.getPrototypeOf(itemsObj);
-            this.logger.log(
-              'grpc',
-              `Commit: items prototype: ${proto ? proto.constructor.name : 'null'}`,
-            );
-            // Try to access value_type (oneof field name in proto)
-            if ('value_type' in itemsObj) {
-              this.logger.log(
-                'grpc',
-                `Commit: items has value_type: ${itemsObj.value_type}`,
-              );
-            }
-            // Try to access the oneof case
-            if ('$type' in itemsObj) {
-              this.logger.log(
-                'grpc',
-                `Commit: items has $type: ${itemsObj.$type}`,
-              );
-            }
-          }
           const fields: Record<string, FirestoreValue> = {};
           const fieldTypes: Record<string, FieldType> = {};
 
@@ -1827,14 +1219,6 @@ export class FirestoreServer {
               const value = doc.fields[key];
               // Ensure the value is a proper FirestoreValue object
               if (value && typeof value === 'object') {
-                // Debug: log field being processed
-                this.logger.log(
-                  'grpc',
-                  `Commit: Processing field '${key}', value keys: ${Object.keys(value).join(', ')}, value: ${JSON.stringify(value)}`,
-                );
-                // With oneofs: true, proto-loader exposes a field indicating which oneof case is active
-                // If value is empty object {}, try to use protobufjs to deserialize manually
-                // This is a workaround for proto-loader losing oneof field data
                 if (Object.keys(value).length === 0) {
                   // Try to use protobufjs to deserialize the field manually
                   // We need to re-serialize the write.update document and deserialize it with protobufjs
@@ -1876,10 +1260,6 @@ export class FirestoreServer {
 
                   // Fallback: infer field type from context
                   const inferredType: FieldType = this.inferFieldType(key);
-                  this.logger.log(
-                    'grpc',
-                    `Commit: Empty object detected for '${key}', inferred type: ${inferredType} (proto-loader lost oneof data)`,
-                  );
                   // Store metadata about the expected type
                   fieldTypes[key] = inferredType;
                   // Store as empty value of the inferred type
@@ -1905,19 +1285,6 @@ export class FirestoreServer {
                   if (detectedType) {
                     fieldTypes[key] = detectedType;
                   }
-                  // Debug: log field being saved
-                  if ('arrayValue' in normalizedValue) {
-                    this.logger.log(
-                      'grpc',
-                      `Commit: Saving field '${key}' as array with ${normalizedValue.arrayValue?.values?.length || 0} values`,
-                    );
-                  }
-                } else {
-                  // Debug: log why field is not being saved
-                  this.logger.log(
-                    'grpc',
-                    `Commit: Field '${key}' not saved - normalizedValue has no properties`,
-                  );
                 }
               }
             });
@@ -1941,7 +1308,7 @@ export class FirestoreServer {
           );
 
           writeResults.push({
-            update_time: timestamp,
+            updateTime: timestamp,
           });
         } else if (write.delete) {
           // Delete document
@@ -2070,38 +1437,12 @@ export class FirestoreServer {
         );
 
         if (document) {
-          this.logger.log(
-            'grpc',
-            `BatchGetDocuments response: FOUND - Document: ${docPath}`,
-          );
-          // Debug: log document fields before conversion
-          const fieldKeys = Object.keys(document.fields);
-          this.logger.log(
-            'grpc',
-            `BatchGetDocuments: Document has ${fieldKeys.length} fields: ${fieldKeys.join(', ')}`,
-          );
-          if (document.fields.items) {
-            this.logger.log(
-              'grpc',
-              `BatchGetDocuments: items field: ${JSON.stringify(document.fields.items)}`,
-            );
-          }
           // Reconstruct fields using metadata if needed
           const reconstructedFields = this.reconstructDocumentFields(document);
-          // Convert internal document format to gRPC Document format
-          // The document from storage has fields in FirestoreValue format already
-          // But we need to ensure create_time and update_time are in Timestamp format
           const now = new Date();
           const readTime = toTimestamp(now);
           const defaultTimestamp = toTimestamp(now);
           const grpcFields = toGrpcFields(reconstructedFields);
-          // Debug: log converted fields
-          if (grpcFields.items) {
-            this.logger.log(
-              'grpc',
-              `BatchGetDocuments: Converted items field: ${JSON.stringify(grpcFields.items)}`,
-            );
-          }
           // Ensure createTime and updateTime are always set (never null/undefined)
           // When loaded from JSON, protobufjs uses camelCase
           // Firebase Admin SDK expects Timestamp objects, not null
