@@ -2,10 +2,9 @@
  * Main entry point for Firestore and Auth emulator servers
  */
 
-import { AppConfig, getConfig, initializeConfig } from './config';
+import { config, FirestoreConfig, FirebaseAuthConfig } from './config';
 import { AuthServer } from './firebase-auth';
-import { FirestoreServer } from './firestore';
-import { ServerConfig } from './types';
+import { FirestoreServer } from './firestore/server';
 
 let lastAuthServer: AuthServer | null = null;
 
@@ -14,59 +13,56 @@ let lastAuthServer: AuthServer | null = null;
  */
 export const firebaseMocker = {
   /**
-   * Start the Firestore server
-   * @param config - Server configuration
+   * Add configuration (firestore, firebase-auth, or logs). Can be called before starting servers.
+   */
+  addConfig: config.addConfig.bind(config),
+
+  /**
+   * Start the Firestore gRPC server.
+   * Adds the given config under the "firestore" field (config already has defaults).
+   * For logs (e.g. verboseGrpcLogs), call addConfig({ logs: { ... } }) separately.
+   * @param opts - Firestore config (port, host, projectId)
    * @returns FirestoreServer instance
    */
   startFirestoreServer: async (
-    config?: Partial<AppConfig>,
+    opts?: Partial<FirestoreConfig>,
   ): Promise<FirestoreServer> => {
-    // Initialize Config with the provided configuration if not already initialized
-    if (config) {
-      initializeConfig(config);
-    }
+    config.addConfig({ firestore: opts });
 
-    const appConfig = getConfig();
-    const serverConfig: ServerConfig = {
-      port: config?.port ?? appConfig.getPort(),
-      host: config?.host ?? appConfig.getHost(),
-      projectId: config?.projectId ?? appConfig.getProjectId(),
-    };
+    const c = config.getObject('firestore');
+    process.env.FIRESTORE_EMULATOR_HOST = `${c.host as string}:${c.port as number}`;
 
-    // Set FIRESTORE_EMULATOR_HOST environment variable for Firebase SDK
-    process.env.FIRESTORE_EMULATOR_HOST = `${serverConfig.host}:${serverConfig.port}`;
-
-    const server = new FirestoreServer(serverConfig);
+    const server = new FirestoreServer({
+      port: c.port as number,
+      host: c.host as string,
+      projectId: c.projectId as string,
+    });
     await server.start();
     return server;
   },
 
   /**
-   * Start the Firebase Auth emulator (HTTP server implementing Identity Toolkit API).
+   * Start the Firebase Auth HTTP emulator (Identity Toolkit API).
+   * Adds the given config under the "firebase-auth" field (config already has defaults).
    * Sets FIREBASE_AUTH_EMULATOR_HOST so firebase-admin Auth uses this emulator.
-   * @param config - Optional config with auth.port, auth.host (default 9099, localhost)
-   * @returns AuthServer instance (use getStorage() for test helpers, stop() to shut down)
+   * @param opts - Auth config (port, host, projectId)
+   * @returns AuthServer instance
    */
-  startAuthServer: async (config?: Partial<AppConfig>): Promise<AuthServer> => {
-    if (config) {
-      initializeConfig(config);
-    }
-    const appConfig = getConfig();
-    const fullConfig = appConfig.getConfig();
-    const authConfig = fullConfig.auth ?? { port: 9099, host: 'localhost' };
-    const port = authConfig.port ?? 9099;
-    const host = authConfig.host ?? 'localhost';
+  startAuthServer: async (
+    opts?: Partial<FirebaseAuthConfig>,
+  ): Promise<AuthServer> => {
+    config.addConfig({ 'firebase-auth': opts });
+
+    const c = config.getObject('firebase-auth');
+    process.env.FIREBASE_AUTH_EMULATOR_HOST = `${c.host as string}:${c.port as number}`;
 
     const authServer = new AuthServer({
-      port,
-      host,
-      projectId: fullConfig.projectId,
+      port: c.port as number,
+      host: c.host as string,
+      projectId: c.projectId as string,
     });
     await authServer.start();
     lastAuthServer = authServer;
-
-    // Firebase Admin SDK expects host:port without protocol
-    process.env.FIREBASE_AUTH_EMULATOR_HOST = `${host}:${port}`;
     return authServer;
   },
 
@@ -87,9 +83,3 @@ export const firebaseMocker = {
    */
   stopFirestoreServer: async (): Promise<void> => {},
 };
-
-// Export classes for advanced usage
-export { FirestoreServer, Storage } from './firestore';
-export { AuthServer, AuthStorage } from './firebase-auth';
-export { AppConfig } from './config';
-export * from './types';

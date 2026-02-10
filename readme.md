@@ -1,6 +1,9 @@
 # Firebase Mocker
 
-A modern TypeScript-based emulator that provides **two separate servers**: one for **Firestore** (gRPC) and one for **Firebase Auth** (HTTP). The Firebase Admin SDK connects to these local servers when the corresponding emulator environment variables are set.
+A TypeScript-based emulator of the Firebase services. It provides **separate servers**. The Firebase Admin SDK connects to these local servers when the corresponding emulator environment variables are set.
+
+ - **Firestore** (gRPC)
+ - **Firebase Auth** (HTTP)
 
 ## Overview
 
@@ -61,30 +64,18 @@ When calling `startFirestoreServer(config)`:
 - **port** — gRPC server port (default `3333`)
 - **host** — Bind address (e.g. `'localhost'`, or `'0.0.0.0'` for all interfaces)
 - **projectId** — Project ID (must match the one used in your Firebase Admin app)
-- **logs.verboseGrpcLogs** — Set to `true` to enable verbose gRPC request/response logs
+
+For logs (e.g. `verboseGrpcLogs`), use `addConfig({ logs: { verboseGrpcLogs: true } })` separately.
 
 ### Firebase Auth server options
 
 When calling `startAuthServer(config)`:
 
-- **projectId** — Project ID (optional; can come from config)
-- **auth.port** — HTTP server port for the Auth emulator (default `9099`)
-- **auth.host** — Bind address (default `'localhost'`)
+- **port** — HTTP server port (default `9099`)
+- **host** — Bind address (default `'localhost'`)
+- **projectId** — Project ID (optional)
 
-Example config object used by both:
-
-```typescript
-const config = {
-  port: 3333,
-  host: 'localhost',
-  projectId: 'my-project',
-  logs: { verboseGrpcLogs: false },
-  auth: {
-    port: 9099,
-    host: 'localhost',
-  },
-};
-```
+Config is stored under the `"firebase-auth"` field internally. You can also call `firebaseMocker.addConfig({ 'firebase-auth': { port, host, projectId } })` or `addConfig({ firestore: { ... } })` before starting servers.
 
 ## Usage
 
@@ -132,8 +123,9 @@ import * as admin from 'firebase-admin';
 
 // Start the Auth emulator (sets FIREBASE_AUTH_EMULATOR_HOST)
 const authServer = await firebaseMocker.startAuthServer({
+  port: 9099,
+  host: 'localhost',
   projectId: 'my-project',
-  auth: { port: 9099, host: 'localhost' },
 });
 
 // Initialize Firebase Admin — Auth API will use the emulator
@@ -160,16 +152,17 @@ You can run both emulators in the same process (e.g. in test setup). Start both 
 import { firebaseMocker } from 'firebase-mocker';
 import * as admin from 'firebase-admin';
 
-const config = {
+// Start both emulators; pass each server its options (stored under "firestore" and "firebase-auth" internally)
+const firestoreServer = await firebaseMocker.startFirestoreServer({
   port: 3333,
   host: 'localhost',
   projectId: 'my-project',
-  auth: { port: 9099, host: 'localhost' },
-};
-
-// Start both emulators; both env vars are set
-const firestoreServer = await firebaseMocker.startFirestoreServer(config);
-const authServer = await firebaseMocker.startAuthServer(config);
+});
+const authServer = await firebaseMocker.startAuthServer({
+  port: 9099,
+  host: 'localhost',
+  projectId: 'my-project',
+});
 
 // Now both admin.firestore() and admin.auth() use the emulators
 admin.initializeApp({ projectId: 'my-project' });

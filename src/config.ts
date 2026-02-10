@@ -1,258 +1,161 @@
 /**
- * Configuration class for firebase-mocker
- * Supports initialization with a config object or uses defaults
+ * Configuration for firebase-mocker.
+ * No environment variables: all values are passed as parameters.
  */
 
 /**
- * Configuration interface
+ * Firestore emulator configuration (gRPC server)
  */
-export interface AppConfig {
+export interface FirestoreConfig {
   port: number;
   host: string;
   projectId: string;
+}
+
+/**
+ * Firebase Auth emulator configuration (HTTP server)
+ */
+export interface FirebaseAuthConfig {
+  port: number;
+  host: string;
+  projectId?: string;
+}
+
+/**
+ * Optional configuration for the emulators (e.g. default logs)
+ */
+export interface CommonConfig {
   logs?: {
     verboseGrpcLogs?: boolean;
-  };
-  /** Enable and configure Firebase Auth emulator (HTTP server) */
-  auth?: {
-    enabled?: boolean;
-    port?: number;
-    host?: string;
   };
 }
 
 /**
- * Default configuration values
+ * Partial config you can pass to addConfig.
+ * Use field "firestore" for Firestore options, "firebase-auth" for Auth options.
  */
-const DEFAULT_CONFIG: AppConfig = {
+export interface Configuration {
+  firestore?: Partial<FirestoreConfig>;
+  'firebase-auth'?: Partial<FirebaseAuthConfig>;
+  logs?: CommonConfig['logs'];
+}
+
+export const DEFAULT_FIRESTORE: FirestoreConfig = {
   port: 3333,
   host: 'localhost',
   projectId: 'demo-project',
-  logs: {
-    verboseGrpcLogs: false,
-  },
-  auth: {
-    enabled: false,
-    port: 9099,
-    host: 'localhost',
-  },
+};
+
+export const DEFAULT_FIREBASE_AUTH: Required<FirebaseAuthConfig> = {
+  port: 9099,
+  host: 'localhost',
+  projectId: 'demo-project',
 };
 
 /**
- * Configuration class that manages application configuration
+ * Singleton configuration. On first creation, storage is initialized with
+ * DEFAULT_FIRESTORE and DEFAULT_FIREBASE_AUTH.
  */
-export class Config {
+class Config {
   private static instance: Config | null = null;
-  private readonly appConfig: AppConfig;
 
-  private constructor(config?: Partial<AppConfig>) {
-    const authDefaults = DEFAULT_CONFIG.auth ?? {};
-    const authConfig = config?.auth ?? {};
-    // Merge provided config with defaults, with environment variables taking precedence
-    this.appConfig = {
-      port: this.getNumberFromEnv('PORT', config?.port ?? DEFAULT_CONFIG.port),
-      host: this.getStringFromEnv('HOST', config?.host ?? DEFAULT_CONFIG.host),
-      projectId: this.getStringFromEnv(
-        'PROJECT_ID',
-        config?.projectId ?? DEFAULT_CONFIG.projectId,
-      ),
-      logs: {
-        verboseGrpcLogs: this.getBooleanFromEnv(
-          'LOGS_VERBOSE_GRPC_LOGS',
-          config?.logs?.verboseGrpcLogs ??
-            DEFAULT_CONFIG.logs?.verboseGrpcLogs ??
-            false,
-        ),
-      },
-      auth: {
-        enabled: authConfig.enabled ?? authDefaults.enabled ?? false,
-        port: this.getNumberFromEnv(
-          'AUTH_EMULATOR_PORT',
-          authConfig.port ?? authDefaults.port ?? 9099,
-        ),
-        host: this.getStringFromEnv(
-          'AUTH_EMULATOR_HOST',
-          authConfig.host ?? authDefaults.host ?? 'localhost',
-        ),
-      },
+  private readonly storage: Configuration;
+
+  private constructor() {
+    this.storage = {
+      firestore: { ...DEFAULT_FIRESTORE },
+      'firebase-auth': { ...DEFAULT_FIREBASE_AUTH },
     };
   }
 
-  /**
-   * Initialize the configuration singleton
-   * Only initializes if not already initialized
-   * @param config - Optional configuration object
-   */
-  public static initialize(config?: Partial<AppConfig>): void {
-    if (!Config.instance) {
-      Config.instance = new Config(config);
-    }
-  }
-
-  /**
-   * Get singleton instance (initializes with defaults if not already initialized)
-   */
-  public static getInstance(): Config {
+  static getInstance(): Config {
     if (!Config.instance) {
       Config.instance = new Config();
     }
     return Config.instance;
   }
 
-  /**
-   * Get string value from environment variable or return default
-   */
-  private getStringFromEnv(key: string, defaultValue: string): string {
-    return process.env[key] ?? defaultValue;
-  }
-
-  /**
-   * Get number value from environment variable or return default
-   */
-  private getNumberFromEnv(key: string, defaultValue: number): number {
-    const envValue = process.env[key];
-    if (envValue) {
-      const parsed = parseInt(envValue, 10);
-      if (!isNaN(parsed)) {
-        return parsed;
-      }
+  addConfig(patch?: Configuration): void {
+    if (!patch) {
+      return;
     }
-    return defaultValue;
-  }
-
-  /**
-   * Get boolean value from environment variable or return default
-   */
-  private getBooleanFromEnv(key: string, defaultValue: boolean): boolean {
-    const envValue = process.env[key];
-    if (envValue) {
-      const value = envValue.toLowerCase();
-      if (value === 'true' || value === '1' || value === 'yes') {
-        return true;
-      }
-      if (value === 'false' || value === '0' || value === 'no') {
-        return false;
-      }
+    if (patch.firestore !== undefined) {
+      this.storage.firestore = {
+        ...this.storage.firestore,
+        ...patch.firestore,
+      };
     }
-    return defaultValue;
+    if (patch['firebase-auth'] !== undefined) {
+      this.storage['firebase-auth'] = {
+        ...this.storage['firebase-auth'],
+        ...patch['firebase-auth'],
+      };
+    }
+    if (patch.logs !== undefined) {
+      this.storage.logs = { ...this.storage.logs, ...patch.logs };
+    }
   }
 
   /**
-   * Get port configuration
+   * Get a value by dot-notation path (e.g. "firestore.port", "logs.verboseGrpcLogs", "firebase-auth.host").
+   * Resolves against storage only. Returns undefined if the path is missing.
    */
-  public getPort(): number {
-    return this.appConfig.port;
-  }
-
-  /**
-   * Get host configuration
-   */
-  public getHost(): string {
-    return this.appConfig.host;
-  }
-
-  /**
-   * Get project ID configuration
-   */
-  public getProjectId(): string {
-    return this.appConfig.projectId;
-  }
-
-  /**
-   * Get full configuration object
-   */
-  public getConfig(): Readonly<AppConfig> {
-    return { ...this.appConfig };
-  }
-
-  /**
-   * Get ServerConfig compatible object
-   */
-  public getServerConfig(): {
-    port: number;
-    host: string;
-    projectId: string;
-  } {
-    return {
-      port: this.appConfig.port,
-      host: this.appConfig.host,
-      projectId: this.appConfig.projectId,
-    };
-  }
-
-  /**
-   * Get a configuration value by path (dot notation)
-   * @param path - Path to the configuration value (e.g., 'logs.verboseGrpcLogs', 'port')
-   * @returns The configuration value or undefined if not found
-   */
-  private getValue(path: string): unknown {
-    const keys = path.split('.');
-    let value: any = this.appConfig;
-
-    for (const key of keys) {
-      if (value === null || value === undefined) {
+  private getByPath(path: string): unknown {
+    const parts = path.split('.');
+    let current: unknown = this.storage as Record<string, unknown>;
+    for (const part of parts) {
+      if (current === null || current === undefined) {
         return undefined;
       }
-      value = value[key];
+      current = (current as Record<string, unknown>)[part];
     }
-
-    return value;
+    return current;
   }
 
-  /**
-   * Get a boolean configuration value by path
-   * @param path - Path to the configuration value (e.g., 'logs.verboseGrpcLogs')
-   * @param defaultValue - Default value if not found (default: false)
-   * @returns The boolean configuration value
-   */
-  public getBoolean(path: string, defaultValue = false): boolean {
-    const value = this.getValue(path);
+  getString(path: string, defaultValue = ''): string {
+    const value = this.getByPath(path);
+    return typeof value === 'string' ? value : defaultValue;
+  }
+
+  getNumber(path: string, defaultValue = 0): number {
+    const value = this.getByPath(path);
+    if (typeof value === 'number' && !Number.isNaN(value)) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const parsed = parseInt(value, 10);
+      return Number.isNaN(parsed) ? defaultValue : parsed;
+    }
+    return defaultValue;
+  }
+
+  getBoolean(path: string, defaultValue = false): boolean {
+    const value = this.getByPath(path);
     if (typeof value === 'boolean') {
       return value;
     }
-    return defaultValue;
-  }
-
-  /**
-   * Get a string configuration value by path
-   * @param path - Path to the configuration value (e.g., 'host', 'projectId')
-   * @param defaultValue - Default value if not found
-   * @returns The string configuration value
-   */
-  public getString(path: string, defaultValue = ''): string {
-    const value = this.getValue(path);
-    if (typeof value === 'string') {
-      return value;
+    if (value === 'true' || value === '1') {
+      return true;
+    }
+    if (value === 'false' || value === '0') {
+      return false;
     }
     return defaultValue;
   }
 
-  /**
-   * Get a number configuration value by path
-   * @param path - Path to the configuration value (e.g., 'port')
-   * @param defaultValue - Default value if not found
-   * @returns The number configuration value
-   */
-  public getNumber(path: string, defaultValue = 0): number {
-    const value = this.getValue(path);
-    if (typeof value === 'number') {
-      return value;
+  getObject(
+    path: string,
+    defaultValue: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    const value = this.getByPath(path);
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
     }
     return defaultValue;
   }
 }
 
 /**
- * Export singleton instance getter
+ * Single config API. Use config.getBoolean(path), config.getString(path), config.addConfig(patch), etc.
  */
-export function getConfig(): Config {
-  return Config.getInstance();
-}
-
-/**
- * Initialize configuration (should be called before using the package)
- * Only initializes if not already initialized
- */
-export function initializeConfig(config?: Partial<AppConfig>): void {
-  Config.initialize(config);
-}
+export const config = Config.getInstance();

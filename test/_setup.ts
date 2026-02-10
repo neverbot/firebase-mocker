@@ -5,7 +5,8 @@
 
 import * as grpc from '@grpc/grpc-js';
 import * as admin from 'firebase-admin';
-import { firebaseMocker, FirestoreServer } from '../src/index';
+import { FirestoreServer } from '../src/firestore';
+import { firebaseMocker } from '../src/index';
 
 // Initialize Firebase Admin SDK (will use emulator if FIRESTORE_EMULATOR_HOST is set)
 let firebaseApp: admin.app.App | undefined = undefined;

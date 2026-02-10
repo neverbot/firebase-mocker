@@ -4,7 +4,7 @@
  */
 
 import winston from 'winston';
-import { getConfig } from './config';
+import { config } from './config';
 
 /**
  * Log message types
@@ -58,7 +58,7 @@ class Logger {
     level: 'error' | 'warn' | 'info' | 'debug' = 'info',
   ): void {
     // Check if we should log gRPC messages (read config dynamically)
-    if (type === 'grpc' && !getConfig().getBoolean('logs.verboseGrpcLogs')) {
+    if (type === 'grpc' && !config.getBoolean('logs.verboseGrpcLogs')) {
       return;
     }
 

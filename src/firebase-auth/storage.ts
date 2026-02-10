@@ -14,19 +14,19 @@ export interface AuthEmulatorUser {
   salt?: string;
   createdAt: string; // ISO or milliseconds string
   lastLoginAt?: string;
-  providerUserInfo?: Array<{
+  providerUserInfo?: {
     providerId: string;
     rawId: string;
     email?: string;
     displayName?: string;
     photoUrl?: string;
-  }>;
+  }[];
   disabled?: boolean;
 }
 
 export class AuthStorage {
-  private usersByUid = new Map<string, AuthEmulatorUser>();
-  private usersByEmail = new Map<string, string>(); // email -> localId
+  private readonly usersByUid = new Map<string, AuthEmulatorUser>();
+  private readonly usersByEmail = new Map<string, string>(); // email -> localId
 
   getByUid(uid: string): AuthEmulatorUser | undefined {
     return this.usersByUid.get(uid);
@@ -40,15 +40,17 @@ export class AuthStorage {
   add(user: AuthEmulatorUser): void {
     this.usersByUid.set(user.localId, user);
     if (user.email) {
-      this.usersByEmail.set((user.email as string).toLowerCase(), user.localId);
+      this.usersByEmail.set(user.email.toLowerCase(), user.localId);
     }
   }
 
   deleteByUid(uid: string): boolean {
     const user = this.usersByUid.get(uid);
-    if (!user) return false;
+    if (!user) {
+      return false;
+    }
     if (user.email) {
-      this.usersByEmail.delete((user.email as string).toLowerCase());
+      this.usersByEmail.delete(user.email.toLowerCase());
     }
     this.usersByUid.delete(uid);
     return true;

@@ -46,7 +46,9 @@ export class AuthServer {
     // Identity Toolkit API: all endpoints under /identitytoolkit.googleapis.com/v1/projects/:projectId/...
     this.app.post(
       '/identitytoolkit.googleapis.com/v1/projects/:projectId/:api',
-      async (req: Request, res: Response) => this.handleApi(req, res),
+      (req: Request, res: Response) => {
+        void this.handleApi(req, res);
+      },
     );
 
     // Catch-all for non-matching paths
