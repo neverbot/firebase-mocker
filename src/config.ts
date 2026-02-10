@@ -13,6 +13,12 @@ export interface AppConfig {
   logs?: {
     verboseGrpcLogs?: boolean;
   };
+  /** Enable and configure Firebase Auth emulator (HTTP server) */
+  auth?: {
+    enabled?: boolean;
+    port?: number;
+    host?: string;
+  };
 }
 
 /**
@@ -25,6 +31,11 @@ const DEFAULT_CONFIG: AppConfig = {
   logs: {
     verboseGrpcLogs: false,
   },
+  auth: {
+    enabled: false,
+    port: 9099,
+    host: 'localhost',
+  },
 };
 
 /**
@@ -35,6 +46,8 @@ export class Config {
   private readonly appConfig: AppConfig;
 
   private constructor(config?: Partial<AppConfig>) {
+    const authDefaults = DEFAULT_CONFIG.auth ?? {};
+    const authConfig = config?.auth ?? {};
     // Merge provided config with defaults, with environment variables taking precedence
     this.appConfig = {
       port: this.getNumberFromEnv('PORT', config?.port ?? DEFAULT_CONFIG.port),
@@ -49,6 +62,17 @@ export class Config {
           config?.logs?.verboseGrpcLogs ??
             DEFAULT_CONFIG.logs?.verboseGrpcLogs ??
             false,
+        ),
+      },
+      auth: {
+        enabled: authConfig.enabled ?? authDefaults.enabled ?? false,
+        port: this.getNumberFromEnv(
+          'AUTH_EMULATOR_PORT',
+          authConfig.port ?? authDefaults.port ?? 9099,
+        ),
+        host: this.getStringFromEnv(
+          'AUTH_EMULATOR_HOST',
+          authConfig.host ?? authDefaults.host ?? 'localhost',
         ),
       },
     };
