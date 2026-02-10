@@ -4,8 +4,7 @@
 
 import { AppConfig, getConfig, initializeConfig } from './config';
 import { AuthServer } from './firebase-auth';
-import { MockFirestore } from './firestore';
-import { FirestoreServer } from './server';
+import { FirestoreServer } from './firestore';
 import { ServerConfig } from './types';
 
 let lastAuthServer: AuthServer | null = null;
@@ -14,15 +13,6 @@ let lastAuthServer: AuthServer | null = null;
  * Main firebaseMocker object with factory methods
  */
 export const firebaseMocker = {
-  /**
-   * Create a Mock Firestore instance
-   * @param config - Optional server configuration
-   * @returns MockFirestore instance
-   */
-  MockFirestore: (config?: Partial<ServerConfig>): MockFirestore => {
-    return new MockFirestore(config);
-  },
-
   /**
    * Start the Firestore server
    * @param config - Server configuration
@@ -99,9 +89,7 @@ export const firebaseMocker = {
 };
 
 // Export classes for advanced usage
-export { MockFirestore } from './firestore';
-export { FirestoreServer } from './server';
+export { FirestoreServer, Storage } from './firestore';
 export { AuthServer, AuthStorage } from './firebase-auth';
-export { Storage } from './storage';
 export { AppConfig } from './config';
 export * from './types';

@@ -46,7 +46,7 @@ export class AuthServer {
     // Identity Toolkit API: all endpoints under /identitytoolkit.googleapis.com/v1/projects/:projectId/...
     this.app.post(
       '/identitytoolkit.googleapis.com/v1/projects/:projectId/:api',
-      (req: Request, res: Response) => this.handleApi(req, res),
+      async (req: Request, res: Response) => this.handleApi(req, res),
     );
 
     // Catch-all for non-matching paths
@@ -54,19 +54,18 @@ export class AuthServer {
       res.status(404).json({ error: 'Not Found' });
     });
 
-    this.app.use((err: Error, _req: Request, res: Response, _next: () => void) => {
-      this.logger.error(
-        'error',
-        `[AUTH] Unhandled error: ${err.message}`,
-      );
-      res.status(500).json({
-        error: { message: err.message, code: 500 },
-      });
-    });
+    this.app.use(
+      (err: Error, _req: Request, res: Response, _next: () => void) => {
+        this.logger.error('error', `[AUTH] Unhandled error: ${err.message}`);
+        res.status(500).json({
+          error: { message: err.message, code: 500 },
+        });
+      },
+    );
   }
 
   private async handleApi(req: Request, res: Response): Promise<void> {
-    const api = req.params.api as string;
+    const api = req.params.api;
     const body = (req.body || {}) as Record<string, unknown>;
 
     const send = (status: number, data: object) => {
@@ -98,7 +97,10 @@ export class AuthServer {
         `[AUTH] Error handling ${api}: ${err instanceof Error ? err.message : String(err)}`,
       );
       send(500, {
-        error: { message: err instanceof Error ? err.message : String(err), code: 500 },
+        error: {
+          message: err instanceof Error ? err.message : String(err),
+          code: 500,
+        },
       });
     }
   }
@@ -222,17 +224,27 @@ export class AuthServer {
       return;
     }
 
-    if (typeof req.email === 'string') user.email = req.email;
-    if (typeof req.displayName === 'string') user.displayName = req.displayName;
-    if (typeof req.photoUrl === 'string') user.photoUrl = req.photoUrl;
-    if (typeof req.phoneNumber === 'string') user.phoneNumber = req.phoneNumber;
-    if (typeof req.passwordHash === 'string') user.passwordHash = req.passwordHash;
+    if (typeof req.email === 'string') {
+      user.email = req.email;
+    }
+    if (typeof req.displayName === 'string') {
+      user.displayName = req.displayName;
+    }
+    if (typeof req.photoUrl === 'string') {
+      user.photoUrl = req.photoUrl;
+    }
+    if (typeof req.phoneNumber === 'string') {
+      user.phoneNumber = req.phoneNumber;
+    }
+    if (typeof req.passwordHash === 'string') {
+      user.passwordHash = req.passwordHash;
+    }
 
     this.storage.add(user);
     send(200, { localId });
   }
 
-  start(): Promise<void> {
+  async start(): Promise<void> {
     return new Promise((resolve) => {
       this.server = this.app.listen(this.config.port, this.config.host, () => {
         this.logger.info(
@@ -244,14 +256,17 @@ export class AuthServer {
     });
   }
 
-  stop(): Promise<void> {
+  async stop(): Promise<void> {
     return new Promise((resolve) => {
       if (!this.server) {
         resolve();
         return;
       }
       this.server.close(() => {
-        this.logger.info('server', '[AUTH] Firebase Auth emulator server stopped');
+        this.logger.info(
+          'server',
+          '[AUTH] Firebase Auth emulator server stopped',
+        );
         this.server = undefined;
         resolve();
       });

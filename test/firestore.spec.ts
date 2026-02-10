@@ -1,5 +1,5 @@
 /**
- * Firebase basic services tests
+ * Firestore basic services tests
  * Tests for creating and managing Firestore collections and documents
  */
 
@@ -8,7 +8,7 @@ import * as admin from 'firebase-admin';
 import { fromFirestoreDocument } from '../src/utils';
 import { getFirestore, getFirestoreStorage } from './_setup';
 
-describe('Firebase Basic Services', () => {
+describe('Firestore Basic Services', () => {
   let db: admin.firestore.Firestore;
   const projectId = 'test-project';
   const databaseId = '(default)';
@@ -76,7 +76,7 @@ describe('Firebase Basic Services', () => {
       expect(storedDoc?.name).to.include(docId);
 
       // Verify stored data matches what we set
-      const storedData = fromFirestoreDocument(storedDoc!);
+      const storedData = fromFirestoreDocument(storedDoc);
       expect(storedData).to.deep.include(data);
 
       // Verify data consistency: Firebase Admin SDK result matches internal storage
@@ -130,7 +130,7 @@ describe('Firebase Basic Services', () => {
         );
         expect(storedDoc).to.exist;
 
-        const storedData = fromFirestoreDocument(storedDoc!);
+        const storedData = fromFirestoreDocument(storedDoc);
         const adminData = adminDoc.data();
 
         // Verify data consistency
@@ -177,7 +177,7 @@ describe('Firebase Basic Services', () => {
       expect(storedDoc?.name).to.include(docId);
 
       // Verify stored data matches what we set
-      const storedData = fromFirestoreDocument(storedDoc!);
+      const storedData = fromFirestoreDocument(storedDoc);
       expect(storedData).to.deep.include(orderData);
 
       // Verify data consistency: Firebase Admin SDK result matches internal storage

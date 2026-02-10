@@ -1,17 +1,16 @@
 # Firebase Mocker
 
-A modern TypeScript-based Firestore emulator that speaks the Firestore gRPC API. It allows the Firebase Admin SDK to connect to a local server as if it were Google Firestore.
+A modern TypeScript-based emulator that provides **two separate servers**: one for **Firestore** (gRPC) and one for **Firebase Auth** (HTTP). The Firebase Admin SDK connects to these local servers when the corresponding emulator environment variables are set.
 
 ## Overview
 
-Firebase Mocker runs a **gRPC server** that implements the Firestore service contract. The Firebase Admin SDK uses gRPC to talk to Firestore, so this emulator plugs in by setting `FIRESTORE_EMULATOR_HOST`. Use it for:
+Firebase Mocker can run:
 
-- Local development without Firebase credentials
-- Integration and E2E tests
-- Offline development
-- CI/CD pipelines
+1. **Firestore emulator** — A **gRPC server** that implements the Firestore service contract. The Admin SDK talks to it when `FIRESTORE_EMULATOR_HOST` is set. Use it for local development, integration tests, and CI without real Firestore credentials.
 
-**Important:** The server uses **gRPC** only. There are no REST endpoints; the Firebase Admin SDK connects over gRPC using the same protocol as production Firestore.
+2. **Firebase Auth emulator** — An **HTTP server** that implements the Identity Toolkit REST API. The Admin SDK Auth API (e.g. `getUserByEmail`, `createUser`, `deleteUser`) uses it when `FIREBASE_AUTH_EMULATOR_HOST` is set. Use it to test auth flows without hitting production Firebase Auth.
+
+You can start **one or both** servers in the same process (e.g. in your test setup). Each server is independent: start only what your tests or app need.
 
 ## Installation
 
@@ -53,111 +52,152 @@ npm run build
 
 ## Configuration
 
-Configuration is passed as a parameter when initializing the emulator:
+Configuration is passed when starting each server. You can use a single config object for both, or pass different options to `startFirestoreServer()` and `startAuthServer()`.
+
+### Firestore server options
+
+When calling `startFirestoreServer(config)`:
+
+- **port** — gRPC server port (default `3333`)
+- **host** — Bind address (e.g. `'localhost'`, or `'0.0.0.0'` for all interfaces)
+- **projectId** — Project ID (must match the one used in your Firebase Admin app)
+- **logs.verboseGrpcLogs** — Set to `true` to enable verbose gRPC request/response logs
+
+### Firebase Auth server options
+
+When calling `startAuthServer(config)`:
+
+- **projectId** — Project ID (optional; can come from config)
+- **auth.port** — HTTP server port for the Auth emulator (default `9099`)
+- **auth.host** — Bind address (default `'localhost'`)
+
+Example config object used by both:
 
 ```typescript
-import { firebaseMocker } from 'firebase-mocker';
-
-console.log('Starting firebase-mocker server...');
-const firebaseMockerConfig = {
+const config = {
   port: 3333,
   host: 'localhost',
-  projectId: 'avance-dev',
-  logs: {
-    verboseGrpcLogs: false,
+  projectId: 'my-project',
+  logs: { verboseGrpcLogs: false },
+  auth: {
+    port: 9099,
+    host: 'localhost',
   },
 };
-const firebaseMockerServer =
-  await firebaseMocker.startFirestoreServer(firebaseMockerConfig);
 ```
-
-Options:
-
-- **port** — gRPC server port (e.g. `3333`)
-- **host** — Bind address (e.g. `'localhost'`, or `'0.0.0.0'` for all interfaces)
-- **projectId** — Firestore project ID (must match the one used in your Firebase Admin app)
-- **logs.verboseGrpcLogs** — Set to `true` to enable verbose gRPC request/response logs
 
 ## Usage
 
-### Starting the gRPC server
+Start **only the servers you need**. Each method sets the corresponding environment variable so the Firebase Admin SDK uses that emulator.
 
-**From your test or app code:**
+### 1. Firestore server only
+
+Start the Firestore gRPC emulator. The Admin SDK will use it for `admin.firestore()` when `FIRESTORE_EMULATOR_HOST` is set (done automatically by `startFirestoreServer()`).
 
 ```typescript
 import { firebaseMocker } from 'firebase-mocker';
 import * as admin from 'firebase-admin';
 
-// Start the Firestore gRPC emulator (sets FIRESTORE_EMULATOR_HOST automatically)
-const server = await firebaseMocker.startFirestoreServer({
+// Start the Firestore emulator (sets FIRESTORE_EMULATOR_HOST)
+const firestoreServer = await firebaseMocker.startFirestoreServer({
   port: 3333,
   host: 'localhost',
   projectId: 'my-project',
 });
 
-// FIRESTORE_EMULATOR_HOST is already set by startFirestoreServer
-// Initialize Firebase Admin so it uses the emulator
+// Initialize Firebase Admin — it will use the emulator
 admin.initializeApp({ projectId: 'my-project' });
 const db = admin.firestore();
 
-// Use Firestore as usual — all calls go to the emulator via gRPC
+// Use Firestore as usual; all calls go to the emulator via gRPC
 const ref = db.collection('users').doc('user1');
 await ref.set({ name: 'Jane', email: 'jane@example.com' });
 const snap = await ref.get();
 console.log(snap.data());
 
 // When done (e.g. after tests)
-await server.stop();
+await firestoreServer.stop();
 ```
 
-### Connecting from an application
+- **Before** initializing the Admin SDK, call `startFirestoreServer()` so `FIRESTORE_EMULATOR_HOST` is set.
+- Use the returned `FirestoreServer` for `getStorage()` (test helpers) or `stop()` to shut down.
 
-1. Start the emulator **before** initializing the Firebase Admin SDK.
-2. `startFirestoreServer()` sets `process.env.FIRESTORE_EMULATOR_HOST` so the Admin SDK targets your emulator.
-3. Initialize the app with the same `projectId` you passed to the emulator.
+### 2. Firebase Auth server only
 
-Example:
+Start the Auth HTTP emulator. The Admin SDK will use it for `admin.auth()` when `FIREBASE_AUTH_EMULATOR_HOST` is set (done automatically by `startAuthServer()`).
 
 ```typescript
-import * as admin from 'firebase-admin';
 import { firebaseMocker } from 'firebase-mocker';
+import * as admin from 'firebase-admin';
 
-// 1. Start emulator first
-await firebaseMocker.startFirestoreServer({
-  port: 3333,
-  host: 'localhost',
-  projectId: 'demo-project',
+// Start the Auth emulator (sets FIREBASE_AUTH_EMULATOR_HOST)
+const authServer = await firebaseMocker.startAuthServer({
+  projectId: 'my-project',
+  auth: { port: 9099, host: 'localhost' },
 });
 
-// 2. Then initialize Firebase Admin (it will use FIRESTORE_EMULATOR_HOST)
-admin.initializeApp({ projectId: 'demo-project' });
-const db = admin.firestore();
+// Initialize Firebase Admin — Auth API will use the emulator
+admin.initializeApp({ projectId: 'my-project' });
+const auth = admin.auth();
 
-// 3. Use Firestore normally
-const docRef = db.collection('events').doc('event1');
-await docRef.set({ name: 'My Event', start: new Date() });
-const doc = await docRef.get();
-console.log(doc.exists, doc.data());
+// Use Auth as usual (createUser, getUserByEmail, deleteUser, etc.)
+const user = await auth.createUser({ email: 'jane@example.com', password: 'secret' });
+console.log(user.uid);
+
+// When done
+await firebaseMocker.stopAuthServer();
 ```
 
-### Mock Firestore and Mock Authentication
+- **Before** initializing the Admin SDK, call `startAuthServer()` so `FIREBASE_AUTH_EMULATOR_HOST` is set.
+- Use `authServer.getStorage()` to access the in-memory user store (e.g. to assert created users in tests).
+- Use `firebaseMocker.stopAuthServer()` to stop the **last** started Auth server (the package keeps a reference to it).
 
-For in-process mocking without a real server (e.g. unit tests with no network), you can use:
+### 3. Both servers (Firestore + Auth)
+
+You can run both emulators in the same process (e.g. in test setup). Start both **before** initializing the Admin SDK.
 
 ```typescript
 import { firebaseMocker } from 'firebase-mocker';
+import * as admin from 'firebase-admin';
 
-const mockFirestore = firebaseMocker.MockFirestore();
-const mockAuth = firebaseMocker.MockAuthentication();
+const config = {
+  port: 3333,
+  host: 'localhost',
+  projectId: 'my-project',
+  auth: { port: 9099, host: 'localhost' },
+};
 
-// Use mocks in your tests...
+// Start both emulators; both env vars are set
+const firestoreServer = await firebaseMocker.startFirestoreServer(config);
+const authServer = await firebaseMocker.startAuthServer(config);
+
+// Now both admin.firestore() and admin.auth() use the emulators
+admin.initializeApp({ projectId: 'my-project' });
+const db = admin.firestore();
+const auth = admin.auth();
+
+// ... use db and auth ...
+
+// Teardown: stop Firestore explicitly; Auth via helper
+await firestoreServer.stop();
+await firebaseMocker.stopAuthServer();
 ```
 
-For integration tests that use the real Firebase Admin SDK, prefer `startFirestoreServer()` so the SDK talks to the gRPC emulator.
+### Connecting from an application — summary
 
-## Implemented gRPC methods
+1. Start the emulator(s) **before** calling `admin.initializeApp()`.
+2. `startFirestoreServer()` sets `FIRESTORE_EMULATOR_HOST`; `startAuthServer()` sets `FIREBASE_AUTH_EMULATOR_HOST`.
+3. Use the same `projectId` in the config and in `initializeApp({ projectId })`.
 
-The emulator implements the following Firestore gRPC methods:
+### Integration tests
+
+Use `startFirestoreServer()` and/or `startAuthServer()` so the real Firebase Admin SDK talks to the emulators. Use the returned server instances: `getStorage()` for test data helpers, `stop()` (Firestore) or `stopAuthServer()` (Auth) for teardown.
+
+## Implemented APIs
+
+### Firestore (gRPC)
+
+The Firestore emulator implements these gRPC methods:
 
 | Method | Used by Firebase Admin SDK for |
 |--------|---------------------------------|
@@ -170,10 +210,15 @@ The emulator implements the following Firestore gRPC methods:
 | `Commit` | Writes: `set()`, `add()`, `update()`, `delete()` |
 | `BatchGetDocuments` | Batched reads, e.g. `doc().get()` |
 
+### Firebase Auth (HTTP)
+
+The Auth emulator exposes the Identity Toolkit REST API under `/identitytoolkit.googleapis.com/v1/projects/:projectId/...`. The Firebase Admin SDK uses it for operations such as `createUser`, `getUserByEmail`, `deleteUser`, and `getUser` when `FIREBASE_AUTH_EMULATOR_HOST` is set. The server stores users in memory; use the returned `AuthServer.getStorage()` for test helpers.
+
 ## Technical notes
 
-- **Protocol:** gRPC only. The server uses the same Firestore proto definitions as the official client (`@google-cloud/firestore`). No REST API.
-- **IPv6:** The server binds to `[::]:port` so it accepts both IPv4 and IPv6 (Firebase Admin SDK may use IPv6).
+- **Firestore protocol:** gRPC only. The Firestore server uses the same proto definitions as the official client (`@google-cloud/firestore`). No REST API for Firestore.
+- **Auth protocol:** HTTP (REST). The Auth server implements the Identity Toolkit API that the Firebase Admin Auth client calls when `FIREBASE_AUTH_EMULATOR_HOST` is set.
+- **IPv6 (Firestore):** The Firestore server binds to `[::]:port` so it accepts both IPv4 and IPv6 (Firebase Admin SDK may use IPv6).
 - **Proto source:** The server loads definitions from `proto/v1.json` (bundled in this package). That file is a copy of `@google-cloud/firestore/build/protos/v1.json`. To update it (e.g. after upgrading firebase-admin), run: `cp node_modules/@google-cloud/firestore/build/protos/v1.json proto/v1.json` from the firebase-mocker package root.
 - **Implementation alignment:** When adding or changing RPCs, compare with the definitions in `@google-cloud/firestore/build/protos/`.
 - **Field naming:** Response messages use a mix of `snake_case` and `camelCase` depending on the RPC (CommitResponse/WriteResult use snake_case; BatchGetDocumentsResponse/Document use camelCase). Do not change them without testing both document creation and reads.

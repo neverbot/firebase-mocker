@@ -2,14 +2,14 @@
  * In-memory storage for Firestore documents
  */
 
-import { getLogger } from './logger';
+import { getLogger } from '../logger';
 import {
   FirestoreDocument,
   FirestoreCollection,
   FirestoreDatabase,
   FirestoreProject,
   FirestoreValue,
-} from './types';
+} from '../types';
 
 export class Storage {
   private readonly projects = new Map<string, FirestoreProject>();

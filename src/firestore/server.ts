@@ -6,14 +6,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as grpc from '@grpc/grpc-js';
 import * as protobuf from 'protobufjs';
-import { getLogger } from './logger';
-import { Storage } from './storage';
+import { getLogger } from '../logger';
 import {
   FirestoreDocument,
   FirestoreValue,
   ServerConfig,
   FieldType,
-} from './types';
+} from '../types';
 import {
   toFirestoreDocument,
   buildDocumentPath,
@@ -22,7 +21,8 @@ import {
   toGrpcFields,
   sanitizeGrpcFieldsForResponse,
   normalizeGrpcValueToFirestoreValue,
-} from './utils';
+} from '../utils';
+import { Storage } from './storage';
 
 export class FirestoreServer {
   private readonly storage: Storage;
