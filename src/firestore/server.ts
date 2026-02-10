@@ -2407,7 +2407,7 @@ export class FirestoreServer {
    * Debug method to log all content in storage
    * Useful for debugging from external projects
    */
-  public debugLogStorage(): void {
+  public debugLog(): void {
     this.storage.debugLog();
   }
 }

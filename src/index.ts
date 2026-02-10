@@ -6,7 +6,8 @@ import { config, FirestoreConfig, FirebaseAuthConfig } from './config';
 import { AuthServer } from './firebase-auth';
 import { FirestoreServer } from './firestore/server';
 
-let lastAuthServer: AuthServer | null = null;
+let authServer: AuthServer | null = null;
+let firestoreServer: FirestoreServer | null = null;
 
 /**
  * Main firebaseMocker object with factory methods
@@ -32,13 +33,13 @@ export const firebaseMocker = {
     const c = config.getObject('firestore');
     process.env.FIRESTORE_EMULATOR_HOST = `${c.host as string}:${c.port as number}`;
 
-    const server = new FirestoreServer({
+    firestoreServer = new FirestoreServer({
       port: c.port as number,
       host: c.host as string,
       projectId: c.projectId as string,
     });
-    await server.start();
-    return server;
+    await firestoreServer.start();
+    return firestoreServer;
   },
 
   /**
@@ -56,13 +57,12 @@ export const firebaseMocker = {
     const c = config.getObject('firebase-auth');
     process.env.FIREBASE_AUTH_EMULATOR_HOST = `${c.host as string}:${c.port as number}`;
 
-    const authServer = new AuthServer({
+    authServer = new AuthServer({
       port: c.port as number,
       host: c.host as string,
       projectId: c.projectId as string,
     });
     await authServer.start();
-    lastAuthServer = authServer;
     return authServer;
   },
 
@@ -70,9 +70,9 @@ export const firebaseMocker = {
    * Stop the last started Auth server (if any).
    */
   stopAuthServer: async (): Promise<void> => {
-    if (lastAuthServer) {
-      await lastAuthServer.stop();
-      lastAuthServer = null;
+    if (authServer) {
+      await authServer.stop();
+      authServer = null;
       delete process.env.FIREBASE_AUTH_EMULATOR_HOST;
     }
   },
@@ -81,5 +81,11 @@ export const firebaseMocker = {
    * Stop the Firestore server
    * @returns Promise that resolves when the server is stopped
    */
-  stopFirestoreServer: async (): Promise<void> => {},
+  stopFirestoreServer: async (): Promise<void> => {
+    if (firestoreServer) {
+      await firestoreServer.stop();
+      firestoreServer = null;
+      delete process.env.FIRESTORE_EMULATOR_HOST;
+    }
+  },
 };

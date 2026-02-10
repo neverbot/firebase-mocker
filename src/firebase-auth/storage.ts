@@ -3,6 +3,8 @@
  * Mirrors the Identity Toolkit API user shape (localId, email, etc.).
  */
 
+import { getLogger } from '../logger';
+
 export interface AuthEmulatorUser {
   localId: string;
   email?: string;
@@ -27,6 +29,7 @@ export interface AuthEmulatorUser {
 export class AuthStorage {
   private readonly usersByUid = new Map<string, AuthEmulatorUser>();
   private readonly usersByEmail = new Map<string, string>(); // email -> localId
+  private readonly logger = getLogger();
 
   getByUid(uid: string): AuthEmulatorUser | undefined {
     return this.usersByUid.get(uid);
@@ -63,5 +66,23 @@ export class AuthStorage {
 
   listUids(): string[] {
     return Array.from(this.usersByUid.keys());
+  }
+
+  /**
+   * Log all users in storage for debugging purposes.
+   */
+  debugLog(): void {
+    if (this.usersByUid.size === 0) {
+      this.logger.logMessage('[AUTH Storage] No users');
+      return;
+    }
+    this.logger.logMessage('[AUTH Storage] === Users ===');
+    this.logger.logMessage(`Total users: ${this.usersByUid.size}`);
+    for (const [uid, user] of this.usersByUid.entries()) {
+      this.logger.logMessage(
+        `  ${uid}: email=${user.email ?? '(none)'} displayName=${user.displayName ?? '(none)'} createdAt=${user.createdAt}`,
+      );
+    }
+    this.logger.logMessage('[AUTH Storage] === End ===');
   }
 }

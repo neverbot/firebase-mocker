@@ -274,4 +274,12 @@ export class AuthServer {
       });
     });
   }
+
+  /**
+   * Debug method to log all content in storage
+   * Useful for debugging from external projects
+   */
+  public debugLog(): void {
+    this.storage.debugLog();
+  }
 }
