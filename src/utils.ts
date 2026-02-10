@@ -5,6 +5,28 @@
 import { FirestoreValue, FirestoreDocument } from './types';
 
 /**
+ * google.protobuf.NullValue.NULL_VALUE = 0.
+ * We must use 0 (not null) when building gRPC Value for responses, because protobufjs
+ * skips fields with value null when encoding, so the client would decode an empty Value {}.
+ */
+export const GRPC_NULL_VALUE = 0;
+
+/** Firestore Value oneof keys: exactly one must be set for a valid Value in gRPC responses. */
+const VALUE_TYPE_KEYS = [
+  'nullValue',
+  'booleanValue',
+  'integerValue',
+  'doubleValue',
+  'timestampValue',
+  'stringValue',
+  'bytesValue',
+  'referenceValue',
+  'geoPointValue',
+  'arrayValue',
+  'mapValue',
+];
+
+/**
  * Convert a JavaScript value to Firestore value format
  */
 export function toFirestoreValue(value: any): FirestoreValue {
@@ -221,11 +243,18 @@ export function normalizeGrpcValueToFirestoreValue(value: any): FirestoreValue {
  */
 export function toGrpcValue(firestoreValue: FirestoreValue): any {
   if (!firestoreValue || typeof firestoreValue !== 'object') {
-    return { nullValue: null };
+    return { nullValue: GRPC_NULL_VALUE };
+  }
+
+  // Ensure we never send a Value that decodes to {} - client SDK throws "Unable to infer type value from '{}'"
+  const hasExactlyOne =
+    VALUE_TYPE_KEYS.filter((k) => k in firestoreValue).length === 1;
+  if (!hasExactlyOne) {
+    return { nullValue: GRPC_NULL_VALUE };
   }
 
   if ('nullValue' in firestoreValue) {
-    return { nullValue: null };
+    return { nullValue: GRPC_NULL_VALUE };
   }
 
   if ('booleanValue' in firestoreValue) {
@@ -282,7 +311,60 @@ export function toGrpcValue(firestoreValue: FirestoreValue): any {
     return { mapValue: { fields: {} } };
   }
 
-  return { nullValue: null };
+  return { nullValue: GRPC_NULL_VALUE };
+}
+
+/**
+ * Recursively ensure every Value in the tree has exactly one value-type key.
+ * Replaces any object that decodes to {} (client throws "Unable to infer type value from '{}'") with nullValue.
+ */
+export function sanitizeGrpcValueForResponse(value: any): any {
+  if (value === null || value === undefined) {
+    return { nullValue: GRPC_NULL_VALUE };
+  }
+  if (typeof value !== 'object') {
+    return value;
+  }
+  const valueKeyCount = VALUE_TYPE_KEYS.filter((k) => k in value).length;
+  if (valueKeyCount === 0) {
+    return { nullValue: GRPC_NULL_VALUE };
+  }
+  if (valueKeyCount > 1) {
+    return { nullValue: GRPC_NULL_VALUE };
+  }
+  if (value.arrayValue && value.arrayValue.values) {
+    return {
+      ...value,
+      arrayValue: {
+        values: value.arrayValue.values.map(sanitizeGrpcValueForResponse),
+      },
+    };
+  }
+  if (
+    value.mapValue &&
+    value.mapValue.fields &&
+    typeof value.mapValue.fields === 'object'
+  ) {
+    const fields: Record<string, any> = {};
+    Object.keys(value.mapValue.fields).forEach((k) => {
+      fields[k] = sanitizeGrpcValueForResponse(value.mapValue.fields[k]);
+    });
+    return { mapValue: { fields } };
+  }
+  return value;
+}
+
+/**
+ * Sanitize all field values in a gRPC fields map (recursively).
+ */
+export function sanitizeGrpcFieldsForResponse(
+  fields: Record<string, any>,
+): Record<string, any> {
+  const out: Record<string, any> = {};
+  Object.keys(fields).forEach((key) => {
+    out[key] = sanitizeGrpcValueForResponse(fields[key]);
+  });
+  return out;
 }
 
 /**

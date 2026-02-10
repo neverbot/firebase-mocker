@@ -20,6 +20,7 @@ import {
   generateDocumentId,
   toTimestamp,
   toGrpcFields,
+  sanitizeGrpcFieldsForResponse,
   normalizeGrpcValueToFirestoreValue,
 } from './utils';
 
@@ -480,10 +481,25 @@ export class FirestoreServer {
         },
         responseSerialize: (value: any): Buffer => {
           // Serialize using protobufjs
-          // When protobufjs loads from JSON, it preserves the field names as-is
-          // The JSON proto uses snake_case, so fromObject() expects snake_case
-          const message = responseType.fromObject(value);
-          return Buffer.from(responseType.encode(message).finish());
+          // When protobufjs loads from JSON proto, it uses jsonName which converts snake_case to camelCase
+          // So fromObject() expects camelCase for fields that have jsonName defined
+          // For BatchGetDocumentsResponse: read_time has jsonName "readTime", so we use camelCase
+          // For Document: create_time has jsonName "createTime", update_time has jsonName "updateTime", so we use camelCase
+          // For CommitResponse: write_results and commit_time do NOT have jsonName, so we use snake_case
+          try {
+            const message = responseType.fromObject(value);
+            return Buffer.from(responseType.encode(message).finish());
+          } catch (error) {
+            this.logger.error(
+              'grpc',
+              `responseSerialize error for ${methodName}: ${error instanceof Error ? error.message : String(error)}`,
+            );
+            this.logger.error(
+              'grpc',
+              `responseSerialize value: ${JSON.stringify(value).substring(0, 500)}`,
+            );
+            throw error;
+          }
         },
         responseDeserialize: (buffer: Buffer): any => {
           // Deserialize using protobufjs
@@ -679,9 +695,20 @@ export class FirestoreServer {
       const request = call.request;
       const path = request.name || '';
 
-      this.logger.log('grpc', `GetDocument request: path=${path}`);
+      this.logger.log('grpc', `[GetDocument] Called with path=${path}`);
+      this.logger.log(
+        'grpc',
+        `[GetDocument] Request object: ${JSON.stringify(request).substring(0, 200)}`,
+      );
 
       const parsed = this.parseDocumentPath(path);
+
+      if (parsed) {
+        this.logger.log(
+          'grpc',
+          `GetDocument DEBUG: Looking for document with projectId=${parsed.projectId}, databaseId=${parsed.databaseId}, collectionId=${parsed.collectionId}, docId=${parsed.docId}`,
+        );
+      }
       if (!parsed) {
         this.logger.log(
           'grpc',
@@ -871,12 +898,50 @@ export class FirestoreServer {
         }
       }
 
+      // Get filter from query (where clause)
+      const where =
+        structuredQuery.where ||
+        structuredQuery.filter ||
+        structuredQuery.Where ||
+        structuredQuery.Filter;
+
+      if (where) {
+        this.logger.log(
+          'grpc',
+          `RunQuery DEBUG: Query has filter/where clause: ${JSON.stringify(where).substring(0, 500)}`,
+        );
+      } else {
+        this.logger.log(
+          'grpc',
+          `RunQuery DEBUG: Query has NO filter/where clause`,
+        );
+      }
+
+      this.logger.log(
+        'grpc',
+        `RunQuery DEBUG: Querying collection with projectId=${projectId}, databaseId=${databaseId}, collectionId=${collectionId}`,
+      );
+
       // Get documents from storage
-      const documents = this.storage.listDocuments(
+      let documents = this.storage.listDocuments(
         projectId,
         databaseId,
         collectionId,
       );
+
+      this.logger.log(
+        'grpc',
+        `RunQuery DEBUG: Found ${documents.length} documents in collection before filtering`,
+      );
+
+      // Apply filters if present
+      if (where) {
+        documents = this.applyQueryFilters(documents, where);
+        this.logger.log(
+          'grpc',
+          `RunQuery DEBUG: Found ${documents.length} documents after filtering`,
+        );
+      }
 
       // Convert current time to Timestamp format (seconds and nanos)
       const now = new Date();
@@ -942,6 +1007,446 @@ export class FirestoreServer {
         message: errorMessage,
       } as grpc.ServiceError);
     }
+  }
+
+  /**
+   * Apply query filters to documents
+   */
+  private applyQueryFilters(
+    documents: FirestoreDocument[],
+    filter: any,
+  ): FirestoreDocument[] {
+    if (!filter || !documents.length) {
+      return documents;
+    }
+
+    // Handle different filter types
+    // Filter can be: field_filter, composite_filter, or unary_filter
+    const fieldFilter =
+      filter.field_filter || filter.fieldFilter || filter.FieldFilter;
+    const compositeFilter =
+      filter.composite_filter ||
+      filter.compositeFilter ||
+      filter.CompositeFilter;
+    const unaryFilter =
+      filter.unary_filter || filter.unaryFilter || filter.UnaryFilter;
+
+    if (fieldFilter) {
+      this.logger.log(
+        'grpc',
+        `RunQuery DEBUG: Applying field filter: ${JSON.stringify(fieldFilter).substring(0, 300)}`,
+      );
+      return this.applyFieldFilter(documents, fieldFilter);
+    }
+
+    if (compositeFilter) {
+      this.logger.log(
+        'grpc',
+        `RunQuery DEBUG: Applying composite filter: ${JSON.stringify(compositeFilter).substring(0, 500)}`,
+      );
+      const result = this.applyCompositeFilter(documents, compositeFilter);
+      this.logger.log(
+        'grpc',
+        `RunQuery DEBUG: Composite filter result: ${result.length} of ${documents.length} documents match`,
+      );
+      return result;
+    }
+
+    if (unaryFilter) {
+      return this.applyUnaryFilter(documents, unaryFilter);
+    }
+
+    // If filter type is not recognized, return all documents
+    return documents;
+  }
+
+  /**
+   * Apply a field filter (e.g., field == value)
+   */
+  private applyFieldFilter(
+    documents: FirestoreDocument[],
+    fieldFilter: any,
+  ): FirestoreDocument[] {
+    const field =
+      fieldFilter.field ||
+      fieldFilter.Field ||
+      fieldFilter.field_reference ||
+      fieldFilter.fieldReference;
+    const op =
+      fieldFilter.op ||
+      fieldFilter.Op ||
+      fieldFilter.operator ||
+      fieldFilter.Operator;
+    const value =
+      fieldFilter.value ||
+      fieldFilter.Value ||
+      fieldFilter.value_value ||
+      fieldFilter.valueValue;
+
+    if (!field || !op || !value) {
+      this.logger.log(
+        'grpc',
+        `RunQuery DEBUG: Field filter missing required fields: field=${!!field}, op=${!!op}, value=${!!value}`,
+      );
+      return documents;
+    }
+
+    // Get field path
+    const fieldPath =
+      field.field_path ||
+      field.fieldPath ||
+      field.field_path_string ||
+      field.fieldPathString ||
+      '';
+
+    // Get operator
+    const operator = op.toUpperCase();
+
+    this.logger.log(
+      'grpc',
+      `RunQuery DEBUG: Applying field filter: fieldPath=${fieldPath}, operator=${operator}, value=${JSON.stringify(value).substring(0, 100)}`,
+    );
+
+    const filtered = documents.filter((doc) => {
+      const docFields = this.reconstructDocumentFields(doc);
+      const fieldValue = this.getFieldValueByPath(docFields, fieldPath);
+
+      const matches = this.compareFieldValue(fieldValue, operator, value);
+      if (matches) {
+        this.logger.log(
+          'grpc',
+          `RunQuery DEBUG: Document matches filter: ${doc.name}, fieldValue=${JSON.stringify(fieldValue).substring(0, 100)}`,
+        );
+      }
+      return matches;
+    });
+
+    this.logger.log(
+      'grpc',
+      `RunQuery DEBUG: Field filter result: ${filtered.length} of ${documents.length} documents match`,
+    );
+
+    return filtered;
+  }
+
+  /**
+   * Apply a composite filter (AND/OR of multiple filters)
+   */
+  private applyCompositeFilter(
+    documents: FirestoreDocument[],
+    compositeFilter: any,
+  ): FirestoreDocument[] {
+    const op =
+      compositeFilter.op ||
+      compositeFilter.Op ||
+      compositeFilter.operator ||
+      compositeFilter.Operator ||
+      'AND';
+    const filters =
+      compositeFilter.filters ||
+      compositeFilter.Filters ||
+      compositeFilter.filter ||
+      compositeFilter.Filter ||
+      [];
+
+    if (!Array.isArray(filters) || filters.length === 0) {
+      return documents;
+    }
+
+    const operator = op.toUpperCase();
+
+    if (operator === 'AND') {
+      // All filters must match
+      this.logger.log(
+        'grpc',
+        `RunQuery DEBUG: Applying AND composite filter with ${filters.length} sub-filters`,
+      );
+      let result = documents;
+      for (let i = 0; i < filters.length; i++) {
+        const filter = filters[i];
+        this.logger.log(
+          'grpc',
+          `RunQuery DEBUG: Applying sub-filter ${i + 1}/${filters.length}: ${JSON.stringify(filter).substring(0, 200)}`,
+        );
+        const beforeCount = result.length;
+        result = this.applyQueryFilters(result, filter);
+        this.logger.log(
+          'grpc',
+          `RunQuery DEBUG: Sub-filter ${i + 1} result: ${result.length} of ${beforeCount} documents match`,
+        );
+      }
+      return result;
+    } else if (operator === 'OR') {
+      // At least one filter must match
+      const results: FirestoreDocument[] = [];
+      for (const filter of filters) {
+        const filtered = this.applyQueryFilters(documents, filter);
+        for (const doc of filtered) {
+          if (!results.find((d) => d.name === doc.name)) {
+            results.push(doc);
+          }
+        }
+      }
+      return results;
+    }
+
+    return documents;
+  }
+
+  /**
+   * Apply a unary filter (IS_NULL, IS_NAN, etc.)
+   */
+  private applyUnaryFilter(
+    documents: FirestoreDocument[],
+    unaryFilter: any,
+  ): FirestoreDocument[] {
+    const op =
+      unaryFilter.op ||
+      unaryFilter.Op ||
+      unaryFilter.operator ||
+      unaryFilter.Operator;
+    const field =
+      unaryFilter.field ||
+      unaryFilter.Field ||
+      unaryFilter.field_reference ||
+      unaryFilter.fieldReference;
+
+    if (!op || !field) {
+      return documents;
+    }
+
+    const fieldPath =
+      field.field_path ||
+      field.fieldPath ||
+      field.field_path_string ||
+      field.fieldPathString ||
+      '';
+    const operator = op.toUpperCase();
+
+    return documents.filter((doc) => {
+      const docFields = this.reconstructDocumentFields(doc);
+      const fieldValue = this.getFieldValueByPath(docFields, fieldPath);
+
+      if (operator === 'IS_NULL') {
+        return (
+          !fieldValue ||
+          fieldValue.nullValue !== undefined ||
+          fieldValue === null
+        );
+      }
+      if (operator === 'IS_NAN') {
+        // For Firestore, IS_NAN only applies to numeric values
+        if (!fieldValue || fieldValue.doubleValue === undefined) {
+          return false;
+        }
+        const doubleVal =
+          typeof fieldValue.doubleValue === 'string'
+            ? parseFloat(fieldValue.doubleValue)
+            : fieldValue.doubleValue;
+        return typeof doubleVal === 'number' && isNaN(doubleVal);
+      }
+      if (operator === 'IS_NOT_NULL') {
+        return (
+          fieldValue &&
+          fieldValue.nullValue === undefined &&
+          fieldValue !== null
+        );
+      }
+
+      return false;
+    });
+  }
+
+  /**
+   * Get field value by path (supports nested fields like "address.city")
+   */
+  private getFieldValueByPath(
+    fields: Record<string, FirestoreValue>,
+    path: string,
+  ): FirestoreValue | undefined {
+    if (!path) {
+      return undefined;
+    }
+
+    const parts = path.split('.');
+    let current: any = fields;
+
+    for (const part of parts) {
+      if (!current || typeof current !== 'object') {
+        return undefined;
+      }
+
+      if (current[part]) {
+        current = current[part];
+      } else if (current.mapValue && current.mapValue.fields) {
+        current = current.mapValue.fields[part];
+      } else {
+        return undefined;
+      }
+    }
+
+    return current as FirestoreValue;
+  }
+
+  /**
+   * Compare field value with operator
+   */
+  private compareFieldValue(
+    fieldValue: FirestoreValue | undefined,
+    operator: string,
+    compareValue: any,
+  ): boolean {
+    if (!fieldValue) {
+      return operator === 'EQUAL' || operator === '==';
+    }
+
+    // Normalize compareValue to FirestoreValue format
+    const normalizedCompareValue =
+      normalizeGrpcValueToFirestoreValue(compareValue);
+
+    switch (operator) {
+      case 'EQUAL':
+      case '==':
+        return this.valuesEqual(fieldValue, normalizedCompareValue);
+      case 'NOT_EQUAL':
+      case '!=':
+        return !this.valuesEqual(fieldValue, normalizedCompareValue);
+      case 'LESS_THAN':
+      case '<':
+        return this.valueLessThan(fieldValue, normalizedCompareValue);
+      case 'LESS_THAN_OR_EQUAL':
+      case '<=':
+        return (
+          this.valueLessThan(fieldValue, normalizedCompareValue) ||
+          this.valuesEqual(fieldValue, normalizedCompareValue)
+        );
+      case 'GREATER_THAN':
+      case '>':
+        return this.valueGreaterThan(fieldValue, normalizedCompareValue);
+      case 'GREATER_THAN_OR_EQUAL':
+      case '>=':
+        return (
+          this.valueGreaterThan(fieldValue, normalizedCompareValue) ||
+          this.valuesEqual(fieldValue, normalizedCompareValue)
+        );
+      case 'ARRAY_CONTAINS':
+        return this.arrayContains(fieldValue, normalizedCompareValue);
+      case 'IN':
+        return this.valueIn(fieldValue, normalizedCompareValue);
+      case 'ARRAY_CONTAINS_ANY':
+        return this.arrayContainsAny(fieldValue, normalizedCompareValue);
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * Check if two FirestoreValues are equal
+   */
+  private valuesEqual(a: FirestoreValue, b: FirestoreValue): boolean {
+    // Compare by type
+    if (a.stringValue !== undefined && b.stringValue !== undefined) {
+      return a.stringValue === b.stringValue;
+    }
+    if (a.integerValue !== undefined && b.integerValue !== undefined) {
+      return String(a.integerValue) === String(b.integerValue);
+    }
+    if (a.doubleValue !== undefined && b.doubleValue !== undefined) {
+      return Number(a.doubleValue) === Number(b.doubleValue);
+    }
+    if (a.booleanValue !== undefined && b.booleanValue !== undefined) {
+      return a.booleanValue === b.booleanValue;
+    }
+    if (a.nullValue !== undefined && b.nullValue !== undefined) {
+      return true;
+    }
+    // Add more type comparisons as needed
+    return false;
+  }
+
+  /**
+   * Check if value a is less than value b
+   */
+  private valueLessThan(a: FirestoreValue, b: FirestoreValue): boolean {
+    if (a.stringValue !== undefined && b.stringValue !== undefined) {
+      return a.stringValue < b.stringValue;
+    }
+    if (a.integerValue !== undefined && b.integerValue !== undefined) {
+      return Number(a.integerValue) < Number(b.integerValue);
+    }
+    if (a.doubleValue !== undefined && b.doubleValue !== undefined) {
+      return Number(a.doubleValue) < Number(b.doubleValue);
+    }
+    return false;
+  }
+
+  /**
+   * Check if value a is greater than value b
+   */
+  private valueGreaterThan(a: FirestoreValue, b: FirestoreValue): boolean {
+    if (a.stringValue !== undefined && b.stringValue !== undefined) {
+      return a.stringValue > b.stringValue;
+    }
+    if (a.integerValue !== undefined && b.integerValue !== undefined) {
+      return Number(a.integerValue) > Number(b.integerValue);
+    }
+    if (a.doubleValue !== undefined && b.doubleValue !== undefined) {
+      return Number(a.doubleValue) > Number(b.doubleValue);
+    }
+    return false;
+  }
+
+  /**
+   * Check if array contains value
+   */
+  private arrayContains(
+    fieldValue: FirestoreValue,
+    compareValue: FirestoreValue,
+  ): boolean {
+    if (!fieldValue.arrayValue || !fieldValue.arrayValue.values) {
+      return false;
+    }
+
+    return fieldValue.arrayValue.values.some((val) =>
+      this.valuesEqual(val, compareValue),
+    );
+  }
+
+  /**
+   * Check if value is in array
+   */
+  private valueIn(
+    fieldValue: FirestoreValue,
+    compareValue: FirestoreValue,
+  ): boolean {
+    if (!compareValue.arrayValue || !compareValue.arrayValue.values) {
+      return false;
+    }
+
+    return compareValue.arrayValue.values.some((val) =>
+      this.valuesEqual(fieldValue, val),
+    );
+  }
+
+  /**
+   * Check if array contains any of the values
+   */
+  private arrayContainsAny(
+    fieldValue: FirestoreValue,
+    compareValue: FirestoreValue,
+  ): boolean {
+    if (!fieldValue.arrayValue || !fieldValue.arrayValue.values) {
+      return false;
+    }
+    if (!compareValue.arrayValue || !compareValue.arrayValue.values) {
+      return false;
+    }
+
+    return fieldValue.arrayValue.values.some((val) =>
+      compareValue.arrayValue!.values.some((compareVal) =>
+        this.valuesEqual(val, compareVal),
+      ),
+    );
   }
 
   /**
@@ -1135,9 +1640,15 @@ export class FirestoreServer {
     callback: grpc.sendUnaryData<any>,
   ): void {
     try {
+      this.logger.log('grpc', '[Commit] Called');
       const request = call.request;
       const database = request.database || '';
       const writes = request.writes || [];
+
+      this.logger.log(
+        'grpc',
+        `[Commit] Request: database=${database}, writes count=${writes.length}`,
+      );
 
       // Parse database path like "projects/{project}/databases/{db}"
       const parts = database.split('/');
@@ -1355,6 +1866,12 @@ export class FirestoreServer {
               Object.keys(fieldTypes).length > 0 ? fieldTypes : undefined,
           };
 
+          // Debug logging to understand document storage
+          this.logger.log(
+            'grpc',
+            `Commit DEBUG: Saving document with projectId=${parsed.projectId}, databaseId=${parsed.databaseId}, collectionId=${parsed.collectionId}, docId=${parsed.docId}`,
+          );
+
           this.storage.setDocument(
             parsed.projectId,
             parsed.databaseId,
@@ -1363,8 +1880,29 @@ export class FirestoreServer {
             document,
           );
 
+          // Verify document was saved correctly
+          const savedDoc = this.storage.getDocument(
+            parsed.projectId,
+            parsed.databaseId,
+            parsed.collectionId,
+            parsed.docId,
+          );
+          if (savedDoc) {
+            this.logger.log(
+              'grpc',
+              `Commit DEBUG: Document verified after save - exists in storage`,
+            );
+          } else {
+            this.logger.log(
+              'grpc',
+              `Commit DEBUG: WARNING - Document NOT found in storage after save!`,
+            );
+          }
+
+          // According to proto: WriteResult has update_time = 1
+          // When using protobufjs with JSON proto, fields should be in snake_case
           writeResults.push({
-            updateTime: timestamp,
+            update_time: timestamp, // Use snake_case for JSON proto
           });
         } else if (write.delete) {
           // Delete document
@@ -1390,8 +1928,10 @@ export class FirestoreServer {
             parsed.docId,
           );
 
+          // According to proto: WriteResult has update_time = 1
+          // When using protobufjs with JSON proto, fields should be in snake_case
           writeResults.push({
-            updateTime: timestamp,
+            update_time: timestamp, // Use snake_case for JSON proto
           });
         }
       }
@@ -1402,9 +1942,12 @@ export class FirestoreServer {
         `Commit: ${compactLog || `${writes.length} writes`} ✓`,
       );
 
+      // According to proto: CommitResponse has write_results = 1, commit_time = 2
+      // Field order matters in protobuf, so write_results must come first
+      // When using protobufjs with JSON proto, fields should be in snake_case
       callback(null, {
-        commitTime: timestamp,
-        writeResults: writeResults,
+        write_results: writeResults,
+        commit_time: timestamp, // Use snake_case for JSON proto
       });
     } catch (error: unknown) {
       const errorMessage =
@@ -1484,7 +2027,8 @@ export class FirestoreServer {
         `BatchGetDocuments: ${compactLog || `${documents.length} docs`}`,
       );
 
-      // Process each document request
+      // Build all responses first, then write in sequence so each write completes before we end the stream.
+      const responses: any[] = [];
       for (const docPath of documents) {
         const parsed = this.parseDocumentPath(docPath);
 
@@ -1494,10 +2038,10 @@ export class FirestoreServer {
             `BatchGetDocuments response: MISSING - Invalid document path: ${docPath}`,
           );
           const now = new Date();
-          const readTime = toTimestamp(now);
-          call.write({
+          responses.push({
+            result: 'missing',
             missing: docPath,
-            readTime: readTime,
+            readTime: toTimestamp(now),
           });
           continue;
         }
@@ -1510,15 +2054,12 @@ export class FirestoreServer {
         );
 
         if (document) {
-          // Reconstruct fields using metadata if needed
           const reconstructedFields = this.reconstructDocumentFields(document);
           const now = new Date();
-          const readTime = toTimestamp(now);
           const defaultTimestamp = toTimestamp(now);
-          const grpcFields = toGrpcFields(reconstructedFields);
-          // Ensure createTime and updateTime are always set (never null/undefined)
-          // When loaded from JSON, protobufjs uses camelCase
-          // Firebase Admin SDK expects Timestamp objects, not null
+          const grpcFields = sanitizeGrpcFieldsForResponse(
+            toGrpcFields(reconstructedFields),
+          );
           const grpcDocument = {
             name: document.name,
             fields: grpcFields,
@@ -1529,31 +2070,51 @@ export class FirestoreServer {
               ? toTimestamp(new Date(document.updateTime))
               : defaultTimestamp,
           };
-          // readTime must be at the top level of BatchGetDocumentsResponse, not inside found
-          call.write({
+          responses.push({
+            result: 'found',
             found: grpcDocument,
-            readTime: readTime,
+            readTime: defaultTimestamp,
           });
         } else {
-          this.logger.log(
-            'grpc',
-            `BatchGetDocuments response: MISSING - Document not found: ${docPath}`,
-          );
           const now = new Date();
-          const readTime = toTimestamp(now);
-          call.write({
+          responses.push({
+            result: 'missing',
             missing: docPath,
-            readTime: readTime,
+            readTime: toTimestamp(now),
           });
         }
       }
 
-      // Log response with same compact format
-      this.logger.log(
-        'grpc',
-        `BatchGetDocuments: ${compactLog || `${documents.length} docs`} ✓`,
-      );
-      call.end();
+      // Write each response and only end after the last write has been flushed (so client receives all messages).
+      const writeNext = (index: number) => {
+        if (index >= responses.length) {
+          this.logger.log(
+            'grpc',
+            `BatchGetDocuments: ${compactLog || `${documents.length} docs`} ✓`,
+          );
+          call.end();
+          return;
+        }
+        const res = responses[index];
+        const outcome = res.found ? 'FOUND' : 'MISSING';
+        const path = res.found ? res.found.name : res.missing;
+        this.logger.log(
+          'grpc',
+          `BatchGetDocuments response[${index}]: ${outcome} ${path}`,
+        );
+        call.write(responses[index], (err?: Error) => {
+          if (err) {
+            this.logger.error(
+              'grpc',
+              `BatchGetDocuments write error: ${err.message}`,
+            );
+            call.destroy(err);
+            return;
+          }
+          writeNext(index + 1);
+        });
+      };
+      writeNext(0);
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
@@ -1649,7 +2210,9 @@ export class FirestoreServer {
             BatchGetDocuments: this.handleBatchGetDocuments.bind(this),
           };
 
-          // Load proto file - try using official Firebase proto first
+          // Load proto: prefer local copy (proto/v1.json) so we always use the same
+          // standard (camelCase from JSON, same as firebase-admin). No dependency on
+          // node_modules resolution.
           const officialProtoPath = path.join(
             __dirname,
             '../../node_modules/@google-cloud/firestore/build/protos/google/firestore/v1/firestore.proto',
@@ -1658,55 +2221,59 @@ export class FirestoreServer {
             __dirname,
             '../proto/firestore.proto',
           );
-          // Use official proto if available, otherwise fall back to local
           const protoPath = require('fs').existsSync(officialProtoPath)
             ? officialProtoPath
             : localProtoPath;
 
-          // Load proto with protobufjs - use the SAME method as firebase-admin
-          // firebase-admin uses Root.fromJSON() with v1.json, which works correctly
-          // This is the key difference - JSON protos handle oneof fields correctly
+          // 1) Prefer local proto/v1.json (bundled copy, single standard = camelCase)
+          const localJsonPath = path.join(__dirname, '../proto/v1.json');
           try {
-            // Try to load from JSON first (same as firebase-admin)
-            // Use require.resolve to find the correct path
-            let jsonProtoPath: string | null = null;
-            try {
-              jsonProtoPath =
-                require.resolve('@google-cloud/firestore/build/protos/v1.json');
-            } catch {
-              // Fallback to relative path
-              jsonProtoPath = path.join(
-                __dirname,
-                '../../node_modules/@google-cloud/firestore/build/protos/v1.json',
-              );
-            }
-
-            if (fs.existsSync(jsonProtoPath)) {
+            if (fs.existsSync(localJsonPath)) {
               this.logger.log(
                 'server',
-                'Loading proto from JSON (same method as firebase-admin)',
+                'Loading proto from local proto/v1.json',
               );
               const jsonProto = JSON.parse(
-                fs.readFileSync(jsonProtoPath, 'utf8'),
+                fs.readFileSync(localJsonPath, 'utf8'),
               );
               this.protobufRoot = protobuf.Root.fromJSON(jsonProto);
-            } else if (protoPath === officialProtoPath) {
-              // Fallback to loading from .proto file
-              this.logger.log(
-                'server',
-                'Loading proto from .proto file (fallback)',
-              );
-              this.protobufRoot = await protobuf.load(protoPath);
             } else {
-              // Fallback to local proto
-              this.logger.log(
-                'server',
-                'Loading proto from local .proto file (fallback)',
-              );
-              const protoContent = fs.readFileSync(protoPath, 'utf8');
-              this.protobufRoot = protobuf.parse(protoContent, {
-                keepCase: true,
-              }).root;
+              // 2) Fallback: try @google-cloud/firestore protos (when not bundled)
+              let jsonProtoPath: string | null = null;
+              try {
+                jsonProtoPath =
+                  require.resolve('@google-cloud/firestore/build/protos/v1.json');
+              } catch {
+                jsonProtoPath = path.join(
+                  __dirname,
+                  '../../node_modules/@google-cloud/firestore/build/protos/v1.json',
+                );
+              }
+              if (fs.existsSync(jsonProtoPath)) {
+                this.logger.log(
+                  'server',
+                  'Loading proto from JSON (same method as firebase-admin)',
+                );
+                const jsonProto = JSON.parse(
+                  fs.readFileSync(jsonProtoPath, 'utf8'),
+                );
+                this.protobufRoot = protobuf.Root.fromJSON(jsonProto);
+              } else if (protoPath === officialProtoPath) {
+                this.logger.log(
+                  'server',
+                  'Loading proto from .proto file (fallback)',
+                );
+                this.protobufRoot = await protobuf.load(protoPath);
+              } else {
+                this.logger.log(
+                  'server',
+                  'Loading proto from local .proto file (fallback)',
+                );
+                const protoContent = fs.readFileSync(protoPath, 'utf8');
+                this.protobufRoot = protobuf.parse(protoContent, {
+                  keepCase: true,
+                }).root;
+              }
             }
 
             // Get message types for manual deserialization
@@ -1759,6 +2326,10 @@ export class FirestoreServer {
               );
 
               this.logger.log('server', 'Loaded proto with protobufjs');
+              this.logger.log(
+                'server',
+                `Registered methods: ${Object.keys(serviceImplementation).join(', ')}`,
+              );
             }
           } catch (error) {
             reject(
