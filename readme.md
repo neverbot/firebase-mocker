@@ -44,8 +44,6 @@ In your project's `package.json`:
 
 Then run `npm install`.
 
-See [local_install.md](./local_install.md) for more details.
-
 ### Development setup
 
 ```bash
@@ -83,16 +81,6 @@ Options:
 ## Usage
 
 ### Starting the gRPC server
-
-**From the command line:**
-
-```bash
-npm run dev
-# or
-npm start
-```
-
-The gRPC server listens on the configured host/port (e.g. `localhost:3333`). There is no HTTP URL; the Firebase Admin SDK connects via gRPC.
 
 **From your test or app code:**
 
@@ -181,26 +169,6 @@ The emulator implements the following Firestore gRPC methods:
 | `DeleteDocument` | Delete document |
 | `Commit` | Writes: `set()`, `add()`, `update()`, `delete()` |
 | `BatchGetDocuments` | Batched reads, e.g. `doc().get()` |
-
-## Development
-
-```bash
-# Install dependencies
-npm install
-
-# Build TypeScript
-npm run build
-
-# Run (starts gRPC server)
-npm start
-
-# Development with watch (if configured)
-npm run dev
-
-# Tests
-npm run test
-npm run test:only
-```
 
 ## Technical notes
 

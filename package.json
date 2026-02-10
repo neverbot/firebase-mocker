@@ -19,8 +19,7 @@
   },
   "files": [
     "dist",
-    "readme.md",
-    "local_install.md"
+    "readme.md"
   ],
   "keywords": [
     "firebase",
