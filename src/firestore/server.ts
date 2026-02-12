@@ -1336,13 +1336,16 @@ export class FirestoreServer {
     } catch {
       normalizedCompareValue = { nullValue: null };
     }
-
     let filtered: FirestoreDocument[];
     try {
       filtered = documents.filter((doc) => {
         try {
           const docFields = this.reconstructDocumentFields(doc);
-          const fieldValue = this.getFieldValueByPath(docFields, fieldPath);
+          let fieldValue = this.getFieldValueByPath(docFields, fieldPath);
+          // Normalize document field value so timestamp objects become ISO strings
+          if (fieldValue && typeof fieldValue === 'object' && Object.keys(fieldValue).length > 0) {
+            fieldValue = normalizeGrpcValueToFirestoreValue(fieldValue);
+          }
           return this.compareFieldValueWithNormalized(
             fieldValue,
             operator,
@@ -1596,6 +1599,21 @@ export class FirestoreServer {
   }
 
   /**
+   * Convert timestampValue (string ISO or object { seconds, nanos }) to milliseconds
+   */
+  private timestampToMs(v: FirestoreValue): number | null {
+    const raw = (v as any).timestampValue ?? (v as any).timestamp_value;
+    if (raw === undefined) return null;
+    if (typeof raw === 'string') return new Date(raw).getTime();
+    if (raw && typeof raw === 'object' && 'seconds' in raw) {
+      const sec = Number((raw as any).seconds) || 0;
+      const nan = Number((raw as any).nanos) || 0;
+      return sec * 1000 + nan / 1000000;
+    }
+    return null;
+  }
+
+  /**
    * Check if two FirestoreValues are equal
    */
   private valuesEqual(a: FirestoreValue, b: FirestoreValue): boolean {
@@ -1615,7 +1633,12 @@ export class FirestoreServer {
     if (a.nullValue !== undefined && b.nullValue !== undefined) {
       return true;
     }
-    // Add more type comparisons as needed
+    const aTs = this.timestampToMs(a);
+    const bTs = this.timestampToMs(b);
+    if (aTs !== null && bTs !== null) return aTs === bTs;
+    if (a.timestampValue !== undefined && b.timestampValue !== undefined) {
+      return a.timestampValue === b.timestampValue;
+    }
     return false;
   }
 
@@ -1632,6 +1655,9 @@ export class FirestoreServer {
     if (a.doubleValue !== undefined && b.doubleValue !== undefined) {
       return Number(a.doubleValue) < Number(b.doubleValue);
     }
+    const aTs = this.timestampToMs(a);
+    const bTs = this.timestampToMs(b);
+    if (aTs !== null && bTs !== null) return aTs < bTs;
     return false;
   }
 
@@ -1648,6 +1674,9 @@ export class FirestoreServer {
     if (a.doubleValue !== undefined && b.doubleValue !== undefined) {
       return Number(a.doubleValue) > Number(b.doubleValue);
     }
+    const aTs = this.timestampToMs(a);
+    const bTs = this.timestampToMs(b);
+    if (aTs !== null && bTs !== null) return aTs > bTs;
     return false;
   }
 
@@ -1763,8 +1792,12 @@ export class FirestoreServer {
         finalDocId,
       );
 
-      // Convert request document to Firestore format
-      const fields = request.document?.fields || {};
+      // Convert request document to Firestore format; normalize gRPC values (e.g. timestamp object -> ISO string)
+      const rawFields = request.document?.fields || {};
+      const fields: Record<string, FirestoreValue> = {};
+      Object.keys(rawFields).forEach((key) => {
+        fields[key] = normalizeGrpcValueToFirestoreValue(rawFields[key]);
+      });
       const document = toFirestoreDocument(documentPath, fields);
       document.name = documentPath;
 
@@ -1838,8 +1871,12 @@ export class FirestoreServer {
         parsed.docId,
       );
 
-      const fields = request.document?.fields || {};
-      const document = toFirestoreDocument(path, fields);
+      const rawFields = request.document?.fields || {};
+      const normalizedFields: Record<string, FirestoreValue> = {};
+      Object.keys(rawFields).forEach((key) => {
+        normalizedFields[key] = normalizeGrpcValueToFirestoreValue(rawFields[key]);
+      });
+      const document = toFirestoreDocument(path, normalizedFields);
       document.name = path;
 
       if (existingDoc) {
@@ -2043,15 +2080,39 @@ export class FirestoreServer {
           );
 
           // Convert Firestore Document to our internal format
-          // doc.fields is already in FirestoreValue format from gRPC
+          // doc.fields may be a gRPC Map or plain object
           const fields: Record<string, FirestoreValue> = {};
           const fieldTypes: Record<string, FieldType> = {};
 
-          if (doc.fields) {
-            Object.keys(doc.fields).forEach((key) => {
-              const value = doc.fields[key];
+          let fieldsSource: Record<string, any> = doc.fields || {};
+          if (fieldsSource && typeof (fieldsSource as any).toObject === 'function') {
+            try {
+              fieldsSource = (fieldsSource as any).toObject({ longs: String, enums: String, bytes: String, defaults: true, oneofs: true });
+            } catch {
+              fieldsSource = doc.fields || {};
+            }
+          }
+          if (fieldsSource && typeof fieldsSource === 'object') {
+            Object.keys(fieldsSource).forEach((key) => {
+              let value = fieldsSource[key];
+              // Expand protobuf Message to plain object so oneof (e.g. timestamp_value) is readable
+              if (value && typeof value === 'object' && typeof (value as any).toObject === 'function') {
+                try {
+                  value = (value as any).toObject({ longs: String, enums: String, bytes: String, defaults: true, oneofs: true });
+                } catch {
+                  // keep value as-is
+                }
+              }
               // Ensure the value is a proper FirestoreValue object
               if (value && typeof value === 'object') {
+                // Always try to normalize first (handles gRPC Value with timestamp_value etc.)
+                const normalizedValue = normalizeGrpcValueToFirestoreValue(value);
+                if (normalizedValue && Object.keys(normalizedValue).length > 0) {
+                  fields[key] = normalizedValue;
+                  const detectedType = this.detectFieldType(normalizedValue);
+                  if (detectedType) fieldTypes[key] = detectedType;
+                  return;
+                }
                 if (Object.keys(value).length === 0) {
                   // Try to use protobufjs to deserialize the field manually
                   // We need to re-serialize the write.update document and deserialize it with protobufjs
@@ -2108,13 +2169,13 @@ export class FirestoreServer {
                 }
                 // Use recursive function to normalize gRPC value to FirestoreValue
                 // This handles all value types including nested arrays and maps
-                const normalizedValue =
+                const normalizedValueFallback =
                   normalizeGrpcValueToFirestoreValue(value);
-                // Only add field if normalizedValue has at least one property
-                if (Object.keys(normalizedValue).length > 0) {
-                  fields[key] = normalizedValue;
+                // Only add field if normalizedValueFallback has at least one property
+                if (Object.keys(normalizedValueFallback).length > 0) {
+                  fields[key] = normalizedValueFallback;
                   // Store the detected type in metadata
-                  const detectedType = this.detectFieldType(normalizedValue);
+                  const detectedType = this.detectFieldType(normalizedValueFallback);
                   if (detectedType) {
                     fieldTypes[key] = detectedType;
                   }

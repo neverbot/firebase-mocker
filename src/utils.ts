@@ -206,10 +206,24 @@ export function normalizeGrpcValueToFirestoreValue(
     return { stringValue: value.string_value || value.stringValue };
   }
 
-  if ('timestamp_value' in value || 'timestampValue' in value) {
-    return {
-      timestampValue: value.timestamp_value || value.timestampValue,
-    };
+  const isTimestamp =
+    'timestamp_value' in value ||
+    'timestampValue' in value ||
+    value?.valueType === 'timestampValue' ||
+    value?.value_type === 'timestampValue';
+  if (isTimestamp) {
+    const raw = value.timestamp_value ?? value.timestampValue;
+    let iso: string;
+    if (typeof raw === 'string') {
+      iso = raw;
+    } else if (raw && typeof raw === 'object' && 'seconds' in raw) {
+      const sec = Number((raw as any).seconds) || 0;
+      const nan = Number((raw as any).nanos) || 0;
+      iso = new Date(sec * 1000 + nan / 1000000).toISOString();
+    } else {
+      iso = new Date().toISOString();
+    }
+    return { timestampValue: iso };
   }
 
   if ('bytes_value' in value || 'bytesValue' in value) {
@@ -295,7 +309,14 @@ export function toGrpcValue(firestoreValue: FirestoreValue): any {
   }
 
   if ('timestampValue' in firestoreValue) {
-    return { timestampValue: firestoreValue.timestampValue };
+    const tv = firestoreValue.timestampValue;
+    if (typeof tv === 'string') {
+      return { timestampValue: toTimestamp(new Date(tv)) };
+    }
+    if (tv && typeof tv === 'object' && 'seconds' in tv) {
+      return { timestampValue: tv };
+    }
+    return { timestampValue: toTimestamp(new Date()) };
   }
 
   if ('bytesValue' in firestoreValue) {
