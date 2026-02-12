@@ -7,6 +7,7 @@ import * as path from 'path';
 import * as grpc from '@grpc/grpc-js';
 import * as protobuf from 'protobufjs';
 import { getLogger } from '../logger';
+import { Storage } from './storage';
 import {
   FirestoreDocument,
   FirestoreValue,
@@ -22,7 +23,6 @@ import {
   sanitizeGrpcFieldsForResponse,
   normalizeGrpcValueToFirestoreValue,
 } from '../utils';
-import { Storage } from './storage';
 
 export class FirestoreServer {
   private readonly storage: Storage;
@@ -652,7 +652,10 @@ export class FirestoreServer {
   }
 
   /**
-   * Parse document path like "projects/{project}/databases/{db}/documents/{collection}/{doc}"
+   * Parse document path like "projects/{project}/databases/{db}/documents/{path...}/{doc}"
+   * Supports both root collections (e.g. documents/users/doc1) and subcollections
+   * (e.g. documents/events/ev1/users/user1). Returns collectionId as full path segment
+   * (e.g. "users" or "events/ev1/users") and docId as the last segment.
    */
   private parseDocumentPath(path: string): {
     projectId: string;
@@ -678,8 +681,12 @@ export class FirestoreServer {
 
     const projectId = parts[projectIndex + 1];
     const databaseId = parts[dbIndex + 1];
-    const collectionId = parts[docsIndex + 1] || '';
-    const docId = parts[docsIndex + 2] || '';
+    const pathSegments = parts.slice(docsIndex + 1);
+    if (pathSegments.length < 2) {
+      return null;
+    }
+    const docId = pathSegments[pathSegments.length - 1];
+    const collectionId = pathSegments.slice(0, -1).join('/');
 
     return { projectId, databaseId, collectionId, docId };
   }
@@ -824,10 +831,17 @@ export class FirestoreServer {
         return;
       }
 
+      // Build full collection path: for subcollections parent is a document path
+      // e.g. "projects/.../documents/events/ev123" + collectionId "users" -> "events/ev123/users"
+      const pathAfterDocuments = parts.slice(docsIndex + 1).join('/');
+      const collectionPath = pathAfterDocuments
+        ? `${pathAfterDocuments}/${collectionId}`
+        : collectionId;
+
       const documents = this.storage.listDocuments(
         projectId,
         databaseId,
-        collectionId,
+        collectionPath,
       );
 
       this.logger.log(
@@ -861,10 +875,19 @@ export class FirestoreServer {
         request.structured_query || request.structuredQuery || {};
       const from = structuredQuery.from;
 
-      // Parse parent path to extract projectId, databaseId
+      // Parse parent path: "projects/p/databases/db/documents" or "projects/p/databases/db/documents/events/ev123"
       const parts = parent.split('/');
-      const projectId = parts[1] || 'test-project';
-      const databaseId = parts[3] || '(default)';
+      const projectIndex = parts.indexOf('projects');
+      const dbIndex = parts.indexOf('databases');
+      const docsIndex = parts.indexOf('documents');
+      const projectId =
+        projectIndex >= 0 && projectIndex + 1 < parts.length
+          ? parts[projectIndex + 1]
+          : 'test-project';
+      const databaseId =
+        dbIndex >= 0 && dbIndex + 1 < parts.length
+          ? parts[dbIndex + 1]
+          : '(default)';
 
       // Get collection ID from the query
       // According to proto, StructuredQuery.from is a single CollectionSelector, not an array
@@ -898,6 +921,13 @@ export class FirestoreServer {
         }
       }
 
+      // Build full collection path for subcollections (same as ListDocuments)
+      const pathAfterDocuments =
+        docsIndex >= 0 ? parts.slice(docsIndex + 1).join('/') : '';
+      const collectionPath = pathAfterDocuments
+        ? `${pathAfterDocuments}/${collectionId}`
+        : collectionId;
+
       // Get filter from query (where clause)
       const where =
         structuredQuery.where ||
@@ -919,14 +949,14 @@ export class FirestoreServer {
 
       this.logger.log(
         'grpc',
-        `RunQuery DEBUG: Querying collection with projectId=${projectId}, databaseId=${databaseId}, collectionId=${collectionId}`,
+        `RunQuery DEBUG: Querying collection with projectId=${projectId}, databaseId=${databaseId}, collectionPath=${collectionPath}`,
       );
 
       // Get documents from storage
       let documents = this.storage.listDocuments(
         projectId,
         databaseId,
-        collectionId,
+        collectionPath,
       );
 
       this.logger.log(
@@ -1467,10 +1497,11 @@ export class FirestoreServer {
         `CreateDocument request: parent=${parent}, collectionId=${collectionId}, documentId=${docId}`,
       );
 
-      // Parse parent path
+      // Parse parent path (database or document path for subcollections)
       const parts = parent.split('/');
       const projectIndex = parts.indexOf('projects');
       const dbIndex = parts.indexOf('databases');
+      const docsIndex = parts.indexOf('documents');
 
       if (
         projectIndex === -1 ||
@@ -1493,10 +1524,17 @@ export class FirestoreServer {
       const databaseId = parts[dbIndex + 1];
       const finalDocId = request.documentId || generateDocumentId();
 
+      // Build full collection path for subcollections
+      const pathAfterDocuments =
+        docsIndex >= 0 ? parts.slice(docsIndex + 1).join('/') : '';
+      const collectionPath = pathAfterDocuments
+        ? `${pathAfterDocuments}/${collectionId}`
+        : collectionId;
+
       const documentPath = buildDocumentPath(
         projectId,
         databaseId,
-        collectionId,
+        collectionPath,
         finalDocId,
       );
 
@@ -1508,7 +1546,7 @@ export class FirestoreServer {
       this.storage.setDocument(
         projectId,
         databaseId,
-        collectionId,
+        collectionPath,
         finalDocId,
         document,
       );
@@ -2407,7 +2445,14 @@ export class FirestoreServer {
    * Debug method to log all content in storage
    * Useful for debugging from external projects
    */
-  public debugLog(): void {
+  public debugLogStorage(): void {
     this.storage.debugLog();
+  }
+
+  /**
+   * Alias for debugLogStorage() for consistency with Auth server API
+   */
+  public debugLog(): void {
+    this.debugLogStorage();
   }
 }
