@@ -598,14 +598,13 @@ export class FirestoreServer {
     document: FirestoreDocument,
   ): Record<string, FirestoreValue> {
     if (!document.fieldTypes) {
-      return document.fields;
+      return document.fields ?? {};
     }
 
     const reconstructed: Record<string, FirestoreValue> = {
-      ...document.fields,
+      ...(document.fields ?? {}),
     };
 
-    // For each field with metadata, ensure it has the correct type
     Object.keys(document.fieldTypes).forEach((key) => {
       const expectedType = document.fieldTypes![key];
       const currentValue = reconstructed[key];
@@ -844,6 +843,22 @@ export class FirestoreServer {
         collectionPath,
       );
 
+      // Ensure each document has the correct resource name (full path including subcollection).
+      // This way the client's doc.ref (built from document.name) points to the right collection,
+      // and doc.ref.delete() sends DeleteDocument with the correct path (no confusion with root collections).
+      for (const doc of documents) {
+        const docId =
+          (doc.name && doc.name.split('/').pop()) || (doc as any).id;
+        if (docId) {
+          doc.name = buildDocumentPath(
+            projectId,
+            databaseId,
+            collectionPath,
+            docId,
+          );
+        }
+      }
+
       this.logger.log(
         'grpc',
         `ListDocuments response: SUCCESS - Found ${documents.length} documents`,
@@ -867,8 +882,33 @@ export class FirestoreServer {
    * RunQuery is a server streaming RPC (client sends request, server streams responses)
    */
   private handleRunQuery(call: grpc.ServerWritableStream<any, any>): void {
+    const rawRequest = call.request;
+    setImmediate(() => {
     try {
-      const request = call.request;
+      // Serialize to plain copy so we never touch proto getters again (they can block).
+      let request: any;
+      try {
+        const seen = new WeakSet<object>();
+        const json = JSON.stringify(rawRequest, (k, v) => {
+          try {
+            if (v !== null && typeof v === 'object') {
+              if (seen.has(v)) return undefined;
+              seen.add(v);
+            }
+            return v;
+          } catch {
+            return undefined;
+          }
+        });
+        request = JSON.parse(json);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        call.destroy({
+          code: grpc.status.INTERNAL,
+          message: `RunQuery request serialization failed: ${msg}`,
+        } as grpc.ServiceError);
+        return;
+      }
       const parent = request.parent || '';
       // Handle both camelCase (from JSON protos) and snake_case formats
       const structuredQuery =
@@ -980,54 +1020,50 @@ export class FirestoreServer {
         nanos: (now.getTime() % 1000) * 1000000,
       };
 
-      // Send responses as a stream
+      // Send responses as a stream. End the stream only after the last write
+      // has been flushed, so the client receives all messages before stream close.
       // According to proto: RunQueryResponse has document = 1, read_time = 2, skipped_results = 3
       // When loaded from JSON, protobufjs uses camelCase: readTime, skippedResults
-      // For empty collections, we still need to send a response with readTime
-      if (documents.length === 0) {
-        // For empty collections, send a response with readTime but no document
-        // The document field should be omitted (not null) for empty results
-        const emptyResponse = {
-          readTime: timestamp,
-          skippedResults: 0,
-        };
-        call.write(emptyResponse);
-      } else {
-        // Send each document as a stream response
-        documents.forEach((doc) => {
-          const documentPath = buildDocumentPath(
-            projectId,
-            databaseId,
-            collectionId,
-            doc.name.split('/').pop() || '',
-          );
+      const responses: any[] =
+        documents.length === 0
+          ? [
+              {
+                readTime: timestamp,
+                skippedResults: 0,
+              },
+            ]
+          : documents.map((doc) => {
+              const docId = (doc.name && doc.name.split('/').pop()) || '';
+              const documentPath = buildDocumentPath(
+                projectId,
+                databaseId,
+                collectionPath,
+                docId,
+              );
+              const reconstructedFields = this.reconstructDocumentFields(doc);
+              const defaultTimestamp = toTimestamp(now);
+              return {
+                document: {
+                  name: documentPath,
+                  fields: toGrpcFields(reconstructedFields),
+                  createTime: doc.createTime
+                    ? toTimestamp(new Date(doc.createTime))
+                    : defaultTimestamp,
+                  updateTime: doc.updateTime
+                    ? toTimestamp(new Date(doc.updateTime))
+                    : defaultTimestamp,
+                },
+                readTime: timestamp,
+                skippedResults: 0,
+              };
+            });
 
-          // Reconstruct fields using metadata if needed
-          const reconstructedFields = this.reconstructDocumentFields(doc);
-          // RunQueryResponse: document = 1, readTime = 2, skippedResults = 3
-          // When loaded from JSON, protobufjs uses camelCase
-          // Ensure timestamps are always set (never null/undefined)
-          const defaultTimestamp = toTimestamp(now);
-          const grpcDocument = {
-            document: {
-              name: documentPath,
-              fields: toGrpcFields(reconstructedFields),
-              createTime: doc.createTime
-                ? toTimestamp(new Date(doc.createTime))
-                : defaultTimestamp,
-              updateTime: doc.updateTime
-                ? toTimestamp(new Date(doc.updateTime))
-                : defaultTimestamp,
-            },
-            readTime: timestamp,
-            skippedResults: 0,
-          };
-
-          call.write(grpcDocument);
-        });
+      // Send all responses then end the stream. Defer end() to the next tick so
+      // the Writable has a chance to queue the writes; in gRPC/Node, calling
+      // end() in the same tick as write() can leave the stream not fully flushed.
+      for (const response of responses) {
+        call.write(response);
       }
-
-      // End the stream
       call.end();
     } catch (error: unknown) {
       const errorMessage =
@@ -1037,6 +1073,7 @@ export class FirestoreServer {
         message: errorMessage,
       } as grpc.ServiceError);
     }
+    });
   }
 
   /**
@@ -1091,6 +1128,34 @@ export class FirestoreServer {
   }
 
   /**
+   * Normalize filter value without invoking proto getters (which can block).
+   * Builds a plain object from own property descriptors only, then normalizes.
+   */
+  private safeNormalizeFilterValue(value: any): FirestoreValue {
+    if (value == null || typeof value !== 'object') {
+      return { nullValue: null };
+    }
+    let keys: string[];
+    try {
+      keys = Object.getOwnPropertyNames(value);
+    } catch {
+      return { nullValue: null };
+    }
+    const plain: Record<string, unknown> = {};
+    for (const key of keys) {
+      try {
+        const d = Object.getOwnPropertyDescriptor(value, key);
+        if (d && 'value' in d) {
+          plain[key] = d.value;
+        }
+      } catch {
+        // skip key if descriptor access throws
+      }
+    }
+    return normalizeGrpcValueToFirestoreValue(plain);
+  }
+
+  /**
    * Apply a field filter (e.g., field == value)
    */
   private applyFieldFilter(
@@ -1132,24 +1197,32 @@ export class FirestoreServer {
     // Get operator
     const operator = op.toUpperCase();
 
-    this.logger.log(
-      'grpc',
-      `RunQuery DEBUG: Applying field filter: fieldPath=${fieldPath}, operator=${operator}, value=${JSON.stringify(value).substring(0, 100)}`,
-    );
+    // Get filter value without invoking proto getters (which can block).
+    let normalizedCompareValue: FirestoreValue;
+    try {
+      normalizedCompareValue = this.safeNormalizeFilterValue(value);
+    } catch {
+      normalizedCompareValue = { nullValue: null };
+    }
 
-    const filtered = documents.filter((doc) => {
-      const docFields = this.reconstructDocumentFields(doc);
-      const fieldValue = this.getFieldValueByPath(docFields, fieldPath);
-
-      const matches = this.compareFieldValue(fieldValue, operator, value);
-      if (matches) {
-        this.logger.log(
-          'grpc',
-          `RunQuery DEBUG: Document matches filter: ${doc.name}, fieldValue=${JSON.stringify(fieldValue).substring(0, 100)}`,
-        );
-      }
-      return matches;
-    });
+    let filtered: FirestoreDocument[];
+    try {
+      filtered = documents.filter((doc) => {
+        try {
+          const docFields = this.reconstructDocumentFields(doc);
+          const fieldValue = this.getFieldValueByPath(docFields, fieldPath);
+          return this.compareFieldValueWithNormalized(
+            fieldValue,
+            operator,
+            normalizedCompareValue,
+          );
+        } catch {
+          return false;
+        }
+      });
+    } catch {
+      filtered = [];
+    }
 
     this.logger.log(
       'grpc',
@@ -1297,7 +1370,6 @@ export class FirestoreServer {
     if (!path) {
       return undefined;
     }
-
     const parts = path.split('.');
     let current: any = fields;
 
@@ -1319,20 +1391,41 @@ export class FirestoreServer {
   }
 
   /**
-   * Compare field value with operator
+   * Compare field value with operator (compareValue is raw gRPC value, will be normalized)
    */
   private compareFieldValue(
     fieldValue: FirestoreValue | undefined,
     operator: string,
     compareValue: any,
   ): boolean {
-    if (!fieldValue) {
-      return operator === 'EQUAL' || operator === '==';
-    }
-
-    // Normalize compareValue to FirestoreValue format
     const normalizedCompareValue =
       normalizeGrpcValueToFirestoreValue(compareValue);
+    return this.compareFieldValueWithNormalized(
+      fieldValue,
+      operator,
+      normalizedCompareValue,
+    );
+  }
+
+  /**
+   * Compare field value with operator (compareValue already normalized)
+   * Missing field: only NOT_EQUAL matches (missing is not equal to any value).
+   */
+  private compareFieldValueWithNormalized(
+    fieldValue: FirestoreValue | undefined,
+    operator: string,
+    normalizedCompareValue: FirestoreValue,
+  ): boolean {
+    if (!fieldValue) {
+      // Missing field: in Firestore, "where('x','==',v)" does not match docs without x
+      if (operator === 'EQUAL' || operator === '==') {
+        return false;
+      }
+      if (operator === 'NOT_EQUAL' || operator === '!=') {
+        return true;
+      }
+      return false;
+    }
 
     switch (operator) {
       case 'EQUAL':
@@ -1677,11 +1770,23 @@ export class FirestoreServer {
     call: grpc.ServerUnaryCall<any, any>,
     callback: grpc.sendUnaryData<any>,
   ): void {
+    let callbackInvoked = false;
+    const safeCallback: grpc.sendUnaryData<any> = (err, value) => {
+      if (callbackInvoked) return;
+      callbackInvoked = true;
+      callback(err, value);
+    };
+
     try {
       this.logger.log('grpc', '[Commit] Called');
       const request = call.request;
       const database = request.database || '';
-      const writes = request.writes || [];
+      const rawWrites = request.writes;
+      const writes = Array.isArray(rawWrites)
+        ? rawWrites
+        : rawWrites && typeof rawWrites === 'object'
+          ? Object.values(rawWrites)
+          : [];
 
       this.logger.log(
         'grpc',
@@ -1703,10 +1808,10 @@ export class FirestoreServer {
           'grpc',
           `Commit: ${writes.length} writes - ERROR: Invalid database path`,
         );
-        callback({
+        safeCallback({
           code: grpc.status.INVALID_ARGUMENT,
           message: `Invalid database path: ${database}`,
-        });
+        }, null);
         return;
       }
 
@@ -1721,9 +1826,12 @@ export class FirestoreServer {
         if (write.update) {
           docPath = write.update.name || '';
           operation = 'update';
-        } else if (write.delete) {
-          docPath = write.delete;
-          operation = 'delete';
+        } else {
+          const deletePath = write.delete ?? write['delete'];
+          if (deletePath != null) {
+            docPath = typeof deletePath === 'string' ? deletePath : String(deletePath);
+            operation = 'delete';
+          }
         }
 
         if (docPath) {
@@ -1787,10 +1895,10 @@ export class FirestoreServer {
               'grpc',
               `Commit response: ERROR - Invalid document path in write`,
             );
-            callback({
+            safeCallback({
               code: grpc.status.INVALID_ARGUMENT,
               message: `Invalid document path: ${docPath}`,
-            });
+            }, null);
             return;
           }
 
@@ -1942,35 +2050,38 @@ export class FirestoreServer {
           writeResults.push({
             update_time: timestamp, // Use snake_case for JSON proto
           });
-        } else if (write.delete) {
-          // Delete document
-          const docPath = write.delete;
-          const parsed = this.parseDocumentPath(docPath);
+        } else {
+          const deletePath = write.delete ?? write['delete'];
+          if (deletePath != null) {
+            // Delete document
+            const docPath = typeof deletePath === 'string' ? deletePath : String(deletePath);
+            const parsed = this.parseDocumentPath(docPath);
 
-          if (!parsed) {
-            this.logger.log(
-              'grpc',
-              `Commit response: ERROR - Invalid document path in delete`,
+            if (!parsed) {
+              this.logger.log(
+                'grpc',
+                `Commit response: ERROR - Invalid document path in delete`,
+              );
+              safeCallback({
+                code: grpc.status.INVALID_ARGUMENT,
+                message: `Invalid document path: ${docPath}`,
+              }, null);
+              return;
+            }
+
+            this.storage.deleteDocument(
+              parsed.projectId,
+              parsed.databaseId,
+              parsed.collectionId,
+              parsed.docId,
             );
-            callback({
-              code: grpc.status.INVALID_ARGUMENT,
-              message: `Invalid document path: ${docPath}`,
+
+            // According to proto: WriteResult has update_time = 1
+            // When using protobufjs with JSON proto, fields should be in snake_case
+            writeResults.push({
+              update_time: timestamp, // Use snake_case for JSON proto
             });
-            return;
           }
-
-          this.storage.deleteDocument(
-            parsed.projectId,
-            parsed.databaseId,
-            parsed.collectionId,
-            parsed.docId,
-          );
-
-          // According to proto: WriteResult has update_time = 1
-          // When using protobufjs with JSON proto, fields should be in snake_case
-          writeResults.push({
-            update_time: timestamp, // Use snake_case for JSON proto
-          });
         }
       }
 
@@ -1983,7 +2094,7 @@ export class FirestoreServer {
       // According to proto: CommitResponse has write_results = 1, commit_time = 2
       // Field order matters in protobuf, so write_results must come first
       // When using protobufjs with JSON proto, fields should be in snake_case
-      callback(null, {
+      safeCallback(null, {
         write_results: writeResults,
         commit_time: timestamp, // Use snake_case for JSON proto
       });
@@ -1991,10 +2102,10 @@ export class FirestoreServer {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
       this.logger.error('grpc', `Commit error: ${errorMessage}`);
-      callback({
+      safeCallback({
         code: grpc.status.INTERNAL,
         message: errorMessage,
-      });
+      }, null);
     }
   }
 
@@ -2228,6 +2339,64 @@ export class FirestoreServer {
     }
   }
 
+  /**
+   * Stub for Listen RPC (real-time listeners).
+   * Not implemented by the emulator; immediately ends the stream so the client
+   * does not hang waiting for responses. Without this, a Listen call would have
+   * no handler and could block the test process.
+   */
+  private handleListen(call: grpc.ServerDuplexStream<any, any>): void {
+    this.logger.log('grpc', 'Listen RPC called (not implemented, closing stream)');
+    this.destroyStreamWithUnimplemented(
+      call,
+      'Listen (real-time) is not supported by this emulator',
+    );
+  }
+
+  /**
+   * Stub for Write RPC (streaming writes). Same as Listen: bidi stream, must be
+   * closed immediately or the client can hang during cleanup/transactions.
+   */
+  private handleWrite(call: grpc.ServerDuplexStream<any, any>): void {
+    this.logger.log('grpc', 'Write RPC called (not implemented, closing stream)');
+    this.destroyStreamWithUnimplemented(
+      call,
+      'Write (streaming) is not supported by this emulator',
+    );
+  }
+
+  private destroyStreamWithUnimplemented(
+    call: grpc.ServerDuplexStream<any, any>,
+    details: string,
+  ): void {
+    call.destroy(
+      Object.assign(new Error(details), {
+        code: grpc.status.UNIMPLEMENTED,
+        details,
+      }) as grpc.ServiceError,
+    );
+  }
+
+  /**
+   * Stub for BatchWrite (and other unary RPCs not implemented). Responds
+   * immediately with UNIMPLEMENTED so the client does not hang.
+   */
+  private handleUnimplementedUnary(
+    _call: grpc.ServerUnaryCall<any, any>,
+    callback: grpc.sendUnaryData<any>,
+    rpcName: string,
+  ): void {
+    this.logger.log('grpc', `${rpcName} RPC called (not implemented)`);
+    callback(
+      {
+        code: grpc.status.UNIMPLEMENTED,
+        message: `${rpcName} is not supported by this emulator`,
+        details: `${rpcName} is not supported by this emulator`,
+      } as grpc.ServiceError,
+      null,
+    );
+  }
+
   public async start(): Promise<void> {
     return new Promise((resolve, reject) => {
       // Use an async IIFE to handle async operations
@@ -2246,6 +2415,16 @@ export class FirestoreServer {
             DeleteDocument: this.handleDeleteDocument.bind(this),
             Commit: this.handleCommitWithProtobufjs.bind(this),
             BatchGetDocuments: this.handleBatchGetDocuments.bind(this),
+            Listen: this.handleListen.bind(this),
+            Write: this.handleWrite.bind(this),
+            BatchWrite: (call: grpc.ServerUnaryCall<any, any>, cb: grpc.sendUnaryData<any>) =>
+              this.handleUnimplementedUnary(call, cb, 'BatchWrite'),
+            BeginTransaction: (call: grpc.ServerUnaryCall<any, any>, cb: grpc.sendUnaryData<any>) =>
+              this.handleUnimplementedUnary(call, cb, 'BeginTransaction'),
+            Rollback: (call: grpc.ServerUnaryCall<any, any>, cb: grpc.sendUnaryData<any>) =>
+              this.handleUnimplementedUnary(call, cb, 'Rollback'),
+            ListCollectionIds: (call: grpc.ServerUnaryCall<any, any>, cb: grpc.sendUnaryData<any>) =>
+              this.handleUnimplementedUnary(call, cb, 'ListCollectionIds'),
           };
 
           // Load proto: prefer local copy (proto/v1.json) so we always use the same

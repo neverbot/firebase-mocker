@@ -157,14 +157,32 @@ export function generateDocumentId(): string {
   );
 }
 
+const MAX_NORMALIZE_DEPTH = 50;
+
 /**
  * Normalize a gRPC value (snake_case or camelCase) to FirestoreValue (camelCase)
- * This is a recursive function that handles all value types including nested arrays and maps
+ * This is a recursive function that handles all value types including nested arrays and maps.
+ * Uses a depth limit and visited set to avoid infinite recursion on circular references.
  */
-export function normalizeGrpcValueToFirestoreValue(value: any): FirestoreValue {
+export function normalizeGrpcValueToFirestoreValue(
+  value: any,
+  options?: { visited?: WeakSet<object>; depth?: number },
+): FirestoreValue {
+  const visited = options?.visited ?? new WeakSet<object>();
+  const depth = options?.depth ?? 0;
+
+  if (depth > MAX_NORMALIZE_DEPTH) {
+    return { nullValue: null };
+  }
   if (!value || typeof value !== 'object') {
     return { nullValue: null };
   }
+  if (visited.has(value)) {
+    return { nullValue: null };
+  }
+  visited.add(value);
+
+  const nextOpts = { visited, depth: depth + 1 };
 
   // Check both snake_case and camelCase formats
   // protobufjs (when loaded from JSON) uses camelCase
@@ -211,7 +229,9 @@ export function normalizeGrpcValueToFirestoreValue(value: any): FirestoreValue {
     if (arrayVal && arrayVal.values) {
       return {
         arrayValue: {
-          values: arrayVal.values.map(normalizeGrpcValueToFirestoreValue),
+          values: arrayVal.values.map((v: any) =>
+            normalizeGrpcValueToFirestoreValue(v, nextOpts),
+          ),
         },
       };
     }
@@ -225,6 +245,7 @@ export function normalizeGrpcValueToFirestoreValue(value: any): FirestoreValue {
       Object.keys(mapVal.fields).forEach((key) => {
         normalizedFields[key] = normalizeGrpcValueToFirestoreValue(
           mapVal.fields[key],
+          nextOpts,
         );
       });
       return { mapValue: { fields: normalizedFields } };

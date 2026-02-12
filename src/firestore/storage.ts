@@ -99,7 +99,8 @@ export class Storage {
   }
 
   /**
-   * List all documents in a collection
+   * List all documents in a collection.
+   * Returns deep-cloned documents so consumers never touch storage-backed objects.
    */
   listDocuments(
     projectId: string,
@@ -107,7 +108,27 @@ export class Storage {
     collectionId: string,
   ): FirestoreDocument[] {
     const collection = this.getCollection(projectId, databaseId, collectionId);
-    return Object.values(collection);
+    const docs = Object.values(collection);
+    return docs.map((doc) => {
+      try {
+        const seen = new WeakSet<object>();
+        const json = JSON.stringify(doc, (_, v) => {
+          if (v !== null && typeof v === 'object') {
+            if (seen.has(v)) return undefined;
+            seen.add(v);
+          }
+          return v;
+        });
+        return JSON.parse(json) as FirestoreDocument;
+      } catch {
+        return {
+          name: doc.name,
+          fields: {},
+          createTime: doc.createTime ?? '',
+          updateTime: doc.updateTime ?? '',
+        } as FirestoreDocument;
+      }
+    });
   }
 
   /**
