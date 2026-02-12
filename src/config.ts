@@ -28,6 +28,8 @@ export interface CommonConfig {
   logs?: {
     verboseGrpcLogs?: boolean;
     verboseAuthLogs?: boolean;
+    /** When an unimplemented RPC is called: 'warn' = log to stderr and return UNIMPLEMENTED, 'throw' = throw so process fails */
+    onUnimplemented?: 'warn' | 'throw';
   };
 }
 
@@ -69,6 +71,7 @@ class Config {
       logs: {
         verboseGrpcLogs: false,
         verboseAuthLogs: false,
+        onUnimplemented: 'warn',
       },
     };
   }

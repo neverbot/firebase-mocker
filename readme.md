@@ -65,7 +65,11 @@ When calling `startFirestoreServer(config)`:
 - **host** — Bind address (e.g. `'localhost'`, or `'0.0.0.0'` for all interfaces)
 - **projectId** — Project ID (must match the one used in your Firebase Admin app)
 
-For logs (e.g. `verboseGrpcLogs`, `verboseAuthLogs`), use `addConfig({ logs: { verboseGrpcLogs: true, verboseAuthLogs: true } })` separately.
+For logs, use `addConfig({ logs: { ... } })` **before** starting servers:
+
+- **verboseGrpcLogs** — Log every gRPC call (default `false`). Set `true` for debugging.
+- **verboseAuthLogs** — Log Auth API requests (default `false`).
+- **onUnimplemented** — When an RPC is not implemented: `'warn'` (default) writes a clear message to stderr and returns UNIMPLEMENTED; `'throw'` throws so the process fails. Example: `addConfig({ logs: { onUnimplemented: 'throw' } })` for strict CI.
 
 ### Firebase Auth server options
 
@@ -192,20 +196,37 @@ Use `startFirestoreServer()` and/or `startAuthServer()` so the real Firebase Adm
 
 The Firestore emulator implements these gRPC methods:
 
-| Method | Used by Firebase Admin SDK for |
-|--------|---------------------------------|
-| `GetDocument` | Single document fetch |
-| `ListDocuments` | List documents in a collection |
-| `RunQuery` | Queries (e.g. `collection.get()`, `where()`) |
-| `CreateDocument` | Create document with server-generated ID |
-| `UpdateDocument` | Update existing document |
-| `DeleteDocument` | Delete document |
-| `Commit` | Writes: `set()`, `add()`, `update()`, `delete()` |
-| `BatchGetDocuments` | Batched reads, e.g. `doc().get()` |
+| Method | Supported | Used by Firebase Admin SDK for |
+|--------|-----------|---------------------------------|
+| `GetDocument` | Yes | Single document fetch (`doc(id).get()`) |
+| `ListDocuments` | Yes | List documents in a collection |
+| `RunQuery` | Yes | Queries (`collection.get()`, `where()`, `orderBy()`) |
+| `RunAggregationQuery` | Yes | Aggregation queries, e.g. `count().get()` (COUNT supported; sum/avg return 0) |
+| `CreateDocument` | Yes | Create document with server-generated ID |
+| `UpdateDocument` | Yes | Update existing document |
+| `DeleteDocument` | Yes | Delete document |
+| `Commit` | Yes | Writes: `set()`, `add()`, `update()`, `delete()` |
+| `BatchGetDocuments` | Yes | Batched reads, e.g. `doc(id).get()` |
+| `Listen` | Yes | Real-time listeners (streaming) |
+| `Write` | Yes | Write stream (used by client SDK) |
+| `BatchWrite` | No | Returns UNIMPLEMENTED; see `onUnimplemented` in Configuration |
+| `BeginTransaction` | No | Returns UNIMPLEMENTED |
+| `Rollback` | No | Returns UNIMPLEMENTED |
+| `ListCollectionIds` | No | Returns UNIMPLEMENTED |
+
+When an unsupported RPC is called, the emulator logs a clear warning to stderr (or throws if `logs.onUnimplemented` is `'throw'`). See **Configuration** for `onUnimplemented`.
 
 ### Firebase Auth (HTTP)
 
-The Auth emulator exposes the Identity Toolkit REST API under `/identitytoolkit.googleapis.com/v1/projects/:projectId/...`. The Firebase Admin SDK uses it for operations such as `createUser`, `getUserByEmail`, `deleteUser`, and `getUser` when `FIREBASE_AUTH_EMULATOR_HOST` is set. The server stores users in memory; use the returned `AuthServer.getStorage()` for test helpers.
+The Auth emulator exposes the Identity Toolkit REST API under `/identitytoolkit.googleapis.com/v1/projects/:projectId/...`. The Firebase Admin SDK uses it when `FIREBASE_AUTH_EMULATOR_HOST` is set. The server stores users in memory; use the returned `AuthServer.getStorage()` for test helpers.
+
+| API endpoint | Supported | Used by Firebase Admin SDK for |
+|--------------|-----------|---------------------------------|
+| `accounts:lookup` | Yes | `getUser(uid)`, `getUserByEmail(email)`, `getUserByPhoneNumber(phone)` |
+| `accounts` (POST) | Yes | `createUser({ email, password, ... })` |
+| `accounts:delete` | Yes | `deleteUser(uid)` |
+| `accounts:update` | Yes | `updateUser(uid, { ... })` |
+| Other Identity Toolkit endpoints | No | Return 404 (e.g. custom token sign-in, email link, etc.) |
 
 ## Technical notes
 
