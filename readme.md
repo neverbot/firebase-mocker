@@ -65,7 +65,7 @@ When calling `startFirestoreServer(config)`:
 - **host** — Bind address (e.g. `'localhost'`, or `'0.0.0.0'` for all interfaces)
 - **projectId** — Project ID (must match the one used in your Firebase Admin app)
 
-For logs (e.g. `verboseGrpcLogs`), use `addConfig({ logs: { verboseGrpcLogs: true } })` separately.
+For logs (e.g. `verboseGrpcLogs`, `verboseAuthLogs`), use `addConfig({ logs: { verboseGrpcLogs: true, verboseAuthLogs: true } })` separately.
 
 ### Firebase Auth server options
 

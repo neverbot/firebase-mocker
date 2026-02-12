@@ -27,6 +27,7 @@ export interface FirebaseAuthConfig {
 export interface CommonConfig {
   logs?: {
     verboseGrpcLogs?: boolean;
+    verboseAuthLogs?: boolean;
   };
 }
 
@@ -65,6 +66,10 @@ class Config {
     this.storage = {
       firestore: { ...DEFAULT_FIRESTORE },
       'firebase-auth': { ...DEFAULT_FIREBASE_AUTH },
+      logs: {
+        verboseGrpcLogs: false,
+        verboseAuthLogs: false,
+      },
     };
   }
 
@@ -97,7 +102,7 @@ class Config {
   }
 
   /**
-   * Get a value by dot-notation path (e.g. "firestore.port", "logs.verboseGrpcLogs", "firebase-auth.host").
+   * Get a value by dot-notation path (e.g. "firestore.port", "logs.verboseGrpcLogs", "logs.verboseAuthLogs", "firebase-auth.host").
    * Resolves against storage only. Returns undefined if the path is missing.
    */
   private getByPath(path: string): unknown {

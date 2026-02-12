@@ -21,7 +21,7 @@ export const firebaseMocker = {
   /**
    * Start the Firestore gRPC server.
    * Adds the given config under the "firestore" field (config already has defaults).
-   * For logs (e.g. verboseGrpcLogs), call addConfig({ logs: { ... } }) separately.
+   * For logs (e.g. verboseGrpcLogs, verboseAuthLogs), call addConfig({ logs: { ... } }) separately.
    * @param opts - Firestore config (port, host, projectId)
    * @returns FirestoreServer instance
    */

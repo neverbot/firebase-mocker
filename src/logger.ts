@@ -9,7 +9,14 @@ import { config } from './config';
 /**
  * Log message types
  */
-export type LogType = 'setup' | 'test' | 'grpc' | 'server' | 'error' | 'info';
+export type LogType =
+  | 'setup'
+  | 'test'
+  | 'grpc'
+  | 'auth'
+  | 'server'
+  | 'error'
+  | 'info';
 
 /**
  * Logger class that wraps Winston
@@ -59,6 +66,10 @@ class Logger {
   ): void {
     // Check if we should log gRPC messages (read config dynamically)
     if (type === 'grpc' && !config.getBoolean('logs.verboseGrpcLogs')) {
+      return;
+    }
+    // Check if we should log Firebase Auth emulator messages
+    if (type === 'auth' && !config.getBoolean('logs.verboseAuthLogs')) {
       return;
     }
 

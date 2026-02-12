@@ -89,7 +89,7 @@ export class AuthServer {
       bodySummary.localId = body.localId;
     }
     this.logger.info(
-      'server',
+      'auth',
       `[AUTH DEBUG] [${this.debugTs()}] Incoming ${api} | body keys: ${Object.keys(body).join(',')} | ${JSON.stringify(bodySummary)}`,
     );
 
@@ -138,7 +138,7 @@ export class AuthServer {
     const localIdArr = req.localId as string[] | undefined;
 
     this.logger.info(
-      'server',
+      'auth',
       `[AUTH DEBUG] [${this.debugTs()}] accounts:lookup | emailArr=${JSON.stringify(emailArr)} localIdArr=${JSON.stringify(localIdArr)}`,
     );
 
@@ -187,7 +187,7 @@ export class AuthServer {
     const email = req.email as string | undefined;
     const userCount = this.storage.listUids().length;
     this.logger.info(
-      'server',
+      'auth',
       `[AUTH DEBUG] [${this.debugTs()}] accounts (create) | email=${email} localId=${req.localId as string} displayName=${req.displayName as string} | storage has ${userCount} users`,
     );
     if (!email || typeof email !== 'string') {
@@ -239,9 +239,9 @@ export class AuthServer {
     };
 
     this.storage.add(user);
-    this.logger.info('server', `[AUTH] Created user ${localId} (${email})`);
+    this.logger.info('auth', `[AUTH] Created user ${localId} (${email})`);
     this.logger.info(
-      'server',
+      'auth',
       `[AUTH DEBUG] [${this.debugTs()}] create => 200 localId=${localId}`,
     );
     send(200, { localId });
@@ -253,7 +253,7 @@ export class AuthServer {
   ): void {
     const localId = req.localId as string;
     this.logger.info(
-      'server',
+      'auth',
       `[AUTH DEBUG] [${this.debugTs()}] accounts:delete | localId=${localId}`,
     );
     if (!localId) {
@@ -263,7 +263,7 @@ export class AuthServer {
 
     const deleted = this.storage.deleteByUid(localId);
     if (deleted) {
-      this.logger.info('server', `[AUTH] Deleted user ${localId}`);
+      this.logger.info('auth', `[AUTH] Deleted user ${localId}`);
     } else {
       this.logger.info(
         'server',
@@ -279,7 +279,7 @@ export class AuthServer {
   ): void {
     const localId = req.localId as string;
     this.logger.info(
-      'server',
+      'auth',
       `[AUTH DEBUG] [${this.debugTs()}] accounts:update | localId=${localId} email=${req.email as string} displayName=${req.displayName as string}`,
     );
     if (!localId) {
@@ -321,7 +321,7 @@ export class AuthServer {
     return new Promise((resolve) => {
       this.server = this.app.listen(this.config.port, this.config.host, () => {
         this.logger.info(
-          'server',
+          'auth',
           `[AUTH] Firebase Auth emulator HTTP server running on http://${this.config.host}:${this.config.port}`,
         );
         resolve();
@@ -337,7 +337,7 @@ export class AuthServer {
       }
       this.server.close(() => {
         this.logger.info(
-          'server',
+          'auth',
           '[AUTH] Firebase Auth emulator server stopped',
         );
         this.server = undefined;
