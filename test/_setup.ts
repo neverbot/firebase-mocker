@@ -3,7 +3,6 @@
  * This file initializes the Firebase mocker and sets up the testing environment
  */
 
-import * as grpc from '@grpc/grpc-js';
 import * as admin from 'firebase-admin';
 import { FirestoreServer } from '../src/firestore';
 import { firebaseMocker } from '../src/index';
@@ -11,7 +10,6 @@ import { firebaseMocker } from '../src/index';
 // Initialize Firebase Admin SDK (will use emulator if FIRESTORE_EMULATOR_HOST is set)
 let firebaseApp: admin.app.App | undefined = undefined;
 let firestoreServer: FirestoreServer | null = null;
-let grpcServer: grpc.Server | null = null;
 let isInitialized = false;
 let isTearingDown = false;
 
@@ -85,12 +83,6 @@ export async function teardown(): Promise<void> {
   }
 
   isTearingDown = true;
-
-  if (grpcServer) {
-    grpcServer.forceShutdown();
-    grpcServer = null;
-    console.log('[TEARDOWN] gRPC server stopped');
-  }
 
   if (firestoreServer) {
     await firestoreServer.stop();

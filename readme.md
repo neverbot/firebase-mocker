@@ -17,29 +17,18 @@ You can start **one or both** servers in the same process (e.g. in your test set
 
 ## Installation
 
-### As a dependency in another project (local development)
-
-#### Option 1: npm link (recommended)
+Install as a devDependency in your project (recommended for tests and local development):
 
 ```bash
-# In firebase-mocker package
-cd firebase-mocker
-npm run build
-npm link
-
-# In your project
-cd /path/to/your/project
-npm link firebase-mocker
+npm install -D firebase-mocker
 ```
 
-#### Option 2: file: protocol
-
-In your project's `package.json`:
+Or add to your project's `package.json`:
 
 ```json
 {
   "devDependencies": {
-    "firebase-mocker": "file:../path/to/firebase-mocker/firebase-mocker"
+    "firebase-mocker": "^1.0.0"
   }
 }
 ```
@@ -65,12 +54,6 @@ When calling `startFirestoreServer(config)`:
 - **host** — Bind address (e.g. `'localhost'`, or `'0.0.0.0'` for all interfaces)
 - **projectId** — Project ID (must match the one used in your Firebase Admin app)
 
-For logs, use `addConfig({ logs: { ... } })` **before** starting servers:
-
-- **verboseGrpcLogs** — Log every gRPC call (default `false`). Set `true` for debugging.
-- **verboseAuthLogs** — Log Auth API requests (default `false`).
-- **onUnimplemented** — When an RPC is not implemented: `'warn'` (default) writes a clear message to stderr and returns UNIMPLEMENTED; `'throw'` throws so the process fails. Example: `addConfig({ logs: { onUnimplemented: 'throw' } })` for strict CI.
-
 ### Firebase Auth server options
 
 When calling `startAuthServer(config)`:
@@ -79,7 +62,13 @@ When calling `startAuthServer(config)`:
 - **host** — Bind address (default `'localhost'`)
 - **projectId** — Project ID (optional)
 
-Config is stored under the `"firebase-auth"` field internally. You can also call `firebaseMocker.addConfig({ 'firebase-auth': { port, host, projectId } })` or `addConfig({ firestore: { ... } })` before starting servers.
+### Common options
+
+For logs, use `addConfig({ logs: { ... } })` **before** starting servers:
+
+- **verboseGrpcLogs** — Log every gRPC call (default `false`). Set `true` for debugging.
+- **verboseAuthLogs** — Log Auth API requests (default `false`).
+- **onUnimplemented** — When an RPC is not implemented: `'warn'` (default) writes a clear message to stderr and returns UNIMPLEMENTED; `'throw'` throws so the process fails. Example: `addConfig({ logs: { onUnimplemented: 'throw' } })` for strict CI.
 
 ## Usage
 
@@ -111,11 +100,11 @@ const snap = await ref.get();
 console.log(snap.data());
 
 // When done (e.g. after tests)
-await firestoreServer.stop();
+await firebaseMocker.stopFirestoreServer();
 ```
 
 - **Before** initializing the Admin SDK, call `startFirestoreServer()` so `FIRESTORE_EMULATOR_HOST` is set.
-- Use the returned `FirestoreServer` for `getStorage()` (test helpers) or `stop()` to shut down.
+- Use the returned `FirestoreServer` for `getStorage()` (test helpers); use `firebaseMocker.stopFirestoreServer()` to shut down.
 
 ### 2. Firebase Auth server only
 
@@ -146,7 +135,7 @@ await firebaseMocker.stopAuthServer();
 
 - **Before** initializing the Admin SDK, call `startAuthServer()` so `FIREBASE_AUTH_EMULATOR_HOST` is set.
 - Use `authServer.getStorage()` to access the in-memory user store (e.g. to assert created users in tests).
-- Use `firebaseMocker.stopAuthServer()` to stop the **last** started Auth server (the package keeps a reference to it).
+- Use `firebaseMocker.stopAuthServer()` to stop the server (the package keeps a reference to the last started Auth server).
 
 ### 3. Both servers (Firestore + Auth)
 
@@ -175,8 +164,8 @@ const auth = admin.auth();
 
 // ... use db and auth ...
 
-// Teardown: stop Firestore explicitly; Auth via helper
-await firestoreServer.stop();
+// Teardown: stop both via firebaseMocker
+await firebaseMocker.stopFirestoreServer();
 await firebaseMocker.stopAuthServer();
 ```
 
@@ -188,7 +177,7 @@ await firebaseMocker.stopAuthServer();
 
 ### Integration tests
 
-Use `startFirestoreServer()` and/or `startAuthServer()` so the real Firebase Admin SDK talks to the emulators. Use the returned server instances: `getStorage()` for test data helpers, `stop()` (Firestore) or `stopAuthServer()` (Auth) for teardown.
+Use `startFirestoreServer()` and/or `startAuthServer()` so the real Firebase Admin SDK talks to the emulators. Use the returned server instances for `getStorage()` (test data helpers). For teardown, call `firebaseMocker.stopFirestoreServer()` and `firebaseMocker.stopAuthServer()`.
 
 ## Implemented APIs
 
