@@ -1340,11 +1340,21 @@ export class FirestoreServer {
     try {
       filtered = documents.filter((doc) => {
         try {
-          const docFields = this.reconstructDocumentFields(doc);
-          let fieldValue = this.getFieldValueByPath(docFields, fieldPath);
-          // Normalize document field value so timestamp objects become ISO strings
-          if (fieldValue && typeof fieldValue === 'object' && Object.keys(fieldValue).length > 0) {
-            fieldValue = normalizeGrpcValueToFirestoreValue(fieldValue);
+          let fieldValue: FirestoreValue | undefined;
+          if (fieldPath === '__name__') {
+            // __name__ is the document resource path, not a stored field
+            const docName = (doc as FirestoreDocument).name;
+            fieldValue =
+              docName != null && docName !== ''
+                ? { referenceValue: docName }
+                : undefined;
+          } else {
+            const docFields = this.reconstructDocumentFields(doc);
+            fieldValue = this.getFieldValueByPath(docFields, fieldPath);
+            // Normalize document field value so timestamp objects become ISO strings
+            if (fieldValue && typeof fieldValue === 'object' && Object.keys(fieldValue).length > 0) {
+              fieldValue = normalizeGrpcValueToFirestoreValue(fieldValue);
+            }
           }
           return this.compareFieldValueWithNormalized(
             fieldValue,
@@ -1618,6 +1628,9 @@ export class FirestoreServer {
    */
   private valuesEqual(a: FirestoreValue, b: FirestoreValue): boolean {
     // Compare by type
+    if (a.referenceValue !== undefined && b.referenceValue !== undefined) {
+      return a.referenceValue === b.referenceValue;
+    }
     if (a.stringValue !== undefined && b.stringValue !== undefined) {
       return a.stringValue === b.stringValue;
     }
