@@ -44,7 +44,7 @@ npm run build
 
 ## Configuration
 
-Configuration is passed when starting each server. You can use a single config object for both, or pass different options to `startFirestoreServer()` and `startAuthServer()`.
+Configuration is passed when starting each server. You can pass different options to `startFirestoreServer()` and `startAuthServer()`.
 
 ### Firestore server options
 
