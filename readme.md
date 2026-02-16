@@ -216,6 +216,23 @@ The Firestore emulator implements these gRPC methods:
 
 When an unsupported RPC is called, the emulator logs a clear warning to stderr (or throws if `logs.onUnimplemented` is `'throw'`). See **Configuration** for `onUnimplemented`.
 
+#### RunQuery: order, limit, pagination and related behaviour
+
+Within **RunQuery** (queries like `collection.where(...).orderBy(...).limit(n).get()`), the following are implemented or not:
+
+| Feature | Implemented | Notes |
+|--------|-------------|--------|
+| **orderBy** | Yes | Multiple sort fields, ASC/DESC; supports `__name__` (document ID). |
+| **limit** | Yes | Max number of documents; supports numeric and protobuf `{ value: n }` form. |
+| **offset** | Yes | Number of documents to skip before returning results. |
+| **where** (field filter) | Yes | Single-field conditions (EQUAL, LESS_THAN, etc.). |
+| **where** (composite filter) | Yes | AND/OR of multiple filters. |
+| **where** (unary filter) | Yes | IS_NULL, IS_NAN, etc. |
+| **start_at / startAt** (Cursor) | No | Cursor-based “start at” (SDK: `startAt()` / `startAfter()`). Not applied; all matching docs are considered from the beginning. |
+| **end_at / endAt** (Cursor) | No | Cursor-based “end at” (SDK: `endAt()` / `endBefore()`). Not applied; results are not trimmed by cursor. |
+
+So **offset + limit** pagination works; **cursor-based pagination** (start_at/end_at) is not implemented.
+
 ### Firebase Auth (HTTP)
 
 The Auth emulator exposes the Identity Toolkit REST API under `/identitytoolkit.googleapis.com/v1/projects/:projectId/...`. The Firebase Admin SDK uses it when `FIREBASE_AUTH_EMULATOR_HOST` is set. The server stores users in memory; use the returned `AuthServer.getStorage()` for test helpers.

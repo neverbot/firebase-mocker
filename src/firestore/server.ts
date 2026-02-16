@@ -1014,6 +1014,66 @@ export class FirestoreServer {
         );
       }
 
+      // Apply orderBy if present (sort before limit/offset)
+      const orderBy =
+        structuredQuery.order_by ??
+        structuredQuery.orderBy ??
+        structuredQuery.OrderBy;
+      const orderByLen = orderBy
+        ? Array.isArray(orderBy)
+          ? orderBy.length
+          : Object.keys(orderBy).length
+        : 0;
+      if (orderByLen > 0) {
+        documents = this.applyOrderBy(documents, orderBy);
+      }
+
+      // Apply offset and limit (StructuredQuery.offset / .limit)
+      // Proto: limit=5, offset=6. Support camelCase, snake_case, numeric keys, and Long-like objects
+      let rawLimit: unknown =
+        structuredQuery.limit ??
+        structuredQuery.Limit ??
+        structuredQuery[5] ??
+        (rawRequest as any)?.structured_query?.limit ??
+        (rawRequest as any)?.structuredQuery?.limit;
+      let rawOffset: unknown =
+        structuredQuery.offset ??
+        structuredQuery.Offset ??
+        structuredQuery[6] ??
+        (rawRequest as any)?.structured_query?.offset ??
+        (rawRequest as any)?.structuredQuery?.offset;
+      if (rawLimit === undefined || rawOffset === undefined) {
+        for (const [k, v] of Object.entries(structuredQuery)) {
+          if (String(k).toLowerCase() === 'limit') rawLimit = v;
+          if (String(k).toLowerCase() === 'offset') rawOffset = v;
+        }
+      }
+      // Support Long-like objects and protobuf Int32Value { value: number }
+      const toNum = (v: unknown): number => {
+        if (v == null) return 0;
+        if (typeof v === 'number' && !Number.isNaN(v)) return Math.max(0, v);
+        if (typeof v === 'object' && v !== null) {
+          if ('toNumber' in (v as any)) return Math.max(0, (v as any).toNumber());
+          if ('value' in (v as any) && typeof (v as any).value === 'number')
+            return Math.max(0, (v as any).value);
+        }
+        return Math.max(0, Number(v) || 0);
+      };
+      const offset = toNum(rawOffset);
+      const limit = toNum(rawLimit);
+      if (documents.length > 0 && (limit > 0 || offset > 0)) {
+        this.logger.log(
+          'grpc',
+          `RunQuery DEBUG: Applying offset=${offset}, limit=${limit}`,
+        );
+      }
+      if (offset > 0) {
+        documents = documents.slice(offset);
+      }
+      if (limit > 0) {
+        documents = documents.slice(0, limit);
+      }
+
       // Convert current time to Timestamp format (seconds and nanos)
       const now = new Date();
       const timestamp = {
@@ -1206,6 +1266,60 @@ export class FirestoreServer {
         } as grpc.ServiceError);
       }
     });
+  }
+
+  /**
+   * Apply orderBy to documents (sort by field path and direction).
+   */
+  private applyOrderBy(
+    documents: FirestoreDocument[],
+    orderBy: any[],
+  ): FirestoreDocument[] {
+    const arr = Array.isArray(orderBy) ? orderBy : Object.values(orderBy || {});
+    if (arr.length === 0 || documents.length === 0) {
+      return documents;
+    }
+    const orders = arr.map((o: any) => {
+      const field =
+        o.field || o.Field || o.field_reference || o.fieldReference;
+      const path =
+        field?.field_path ?? field?.fieldPath ?? field?.field_path_string ?? '';
+      const dir = o.direction ?? o.Direction ?? 1;
+      return { path, ascending: dir !== 2 };
+    });
+    return [...documents].sort((a, b) => {
+      for (const { path, ascending } of orders) {
+        const fieldsA = this.reconstructDocumentFields(a);
+        const fieldsB = this.reconstructDocumentFields(b);
+        const valA = path === '__name__' ? (a as FirestoreDocument).name : this.getFieldValueByPath(fieldsA, path);
+        const valB = path === '__name__' ? (b as FirestoreDocument).name : this.getFieldValueByPath(fieldsB, path);
+        const cmp = this.compareValuesForOrder(valA, valB);
+        if (cmp !== 0) {
+          return ascending ? cmp : -cmp;
+        }
+      }
+      return 0;
+    });
+  }
+
+  private compareValuesForOrder(a: any, b: any): number {
+    if (a == null && b == null) return 0;
+    if (a == null) return 1;
+    if (b == null) return -1;
+    const aStr = (a as FirestoreValue).stringValue ?? (typeof a === 'string' ? a : undefined);
+    const bStr = (b as FirestoreValue).stringValue ?? (typeof b === 'string' ? b : undefined);
+    if (aStr !== undefined && bStr !== undefined) {
+      return aStr.localeCompare(bStr);
+    }
+    const aNum = (a as FirestoreValue).integerValue ?? (a as FirestoreValue).doubleValue ?? (typeof a === 'number' ? a : undefined);
+    const bNum = (b as FirestoreValue).integerValue ?? (b as FirestoreValue).doubleValue ?? (typeof b === 'number' ? b : undefined);
+    if (aNum !== undefined && bNum !== undefined) {
+      return Number(aNum) - Number(bNum);
+    }
+    const aTs = this.timestampToMs(a as FirestoreValue);
+    const bTs = this.timestampToMs(b as FirestoreValue);
+    if (aTs != null && bTs != null) return aTs - bTs;
+    return String(a).localeCompare(String(b));
   }
 
   /**
