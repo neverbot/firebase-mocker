@@ -2184,6 +2184,63 @@ export class FirestoreServer {
             });
           }
 
+          // Apply updateTransforms (e.g. serverTimestamp) to fields before merging
+          const updateTransforms =
+            (write as any).updateTransforms || (write as any).update_transforms;
+          if (Array.isArray(updateTransforms)) {
+            updateTransforms.forEach((t: any) => {
+              if (!t) return;
+              const fieldPath =
+                t.fieldPath || t.field_path || t.field || t.Field || '';
+              if (!fieldPath) return;
+
+              // Handle setToServerValue: REQUEST_TIME (serverTimestamp)
+              const serverValue =
+                t.setToServerValue || t.set_to_server_value || t.serverValue;
+              if (
+                serverValue === 'REQUEST_TIME' ||
+                serverValue === 1 || // enum value for REQUEST_TIME
+                serverValue === 'REQUEST_TIME_UNSPECIFIED'
+              ) {
+                const iso = now.toISOString();
+                fields[fieldPath] = { timestampValue: iso };
+                const detectedType = this.detectFieldType(fields[fieldPath]);
+                if (detectedType) {
+                  fieldTypes[fieldPath] = detectedType;
+                }
+              }
+            });
+          }
+
+          // Apply top-level transform with fieldTransforms (less common, but supported)
+          const transform = (write as any).transform;
+          const fieldTransforms =
+            transform &&
+            (transform.fieldTransforms || transform.field_transforms);
+          if (Array.isArray(fieldTransforms)) {
+            fieldTransforms.forEach((t: any) => {
+              if (!t) return;
+              const fieldPath =
+                t.fieldPath || t.field_path || t.field || t.Field || '';
+              if (!fieldPath) return;
+
+              const serverValue =
+                t.setToServerValue || t.set_to_server_value || t.serverValue;
+              if (
+                serverValue === 'REQUEST_TIME' ||
+                serverValue === 1 ||
+                serverValue === 'REQUEST_TIME_UNSPECIFIED'
+              ) {
+                const iso = now.toISOString();
+                fields[fieldPath] = { timestampValue: iso };
+                const detectedType = this.detectFieldType(fields[fieldPath]);
+                if (detectedType) {
+                  fieldTypes[fieldPath] = detectedType;
+                }
+              }
+            });
+          }
+
           // For updates, merge with existing fields
           let finalFields = fields;
           if (existingDoc && write.updateMask) {
