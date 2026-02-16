@@ -169,16 +169,6 @@ await firebaseMocker.stopFirestoreServer();
 await firebaseMocker.stopAuthServer();
 ```
 
-### Connecting from an application — summary
-
-1. Start the emulator(s) **before** calling `admin.initializeApp()`.
-2. `startFirestoreServer()` sets `FIRESTORE_EMULATOR_HOST`; `startAuthServer()` sets `FIREBASE_AUTH_EMULATOR_HOST`.
-3. Use the same `projectId` in the config and in `initializeApp({ projectId })`.
-
-### Integration tests
-
-Use `startFirestoreServer()` and/or `startAuthServer()` so the real Firebase Admin SDK talks to the emulators. Use the returned server instances for `getStorage()` (test data helpers). For teardown, call `firebaseMocker.stopFirestoreServer()` and `firebaseMocker.stopAuthServer()`.
-
 ## Implemented APIs
 
 ### Firestore (gRPC)
@@ -246,16 +236,21 @@ The Auth emulator exposes the Identity Toolkit REST API under `/identitytoolkit.
 
 ## Status
 
-Current focus is on correctness and compatibility with the Firebase Admin SDK for:
+**Firestore emulator** — Implemented and in use:
 
-- Basic CRUD (get, set, update, delete)
-- Queries with filters (e.g. `where`)
-- Batch get (e.g. `doc(id).get()`)
+- Basic CRUD (get, set, update, delete) via Commit, GetDocument, BatchGetDocuments, CreateDocument, UpdateDocument, DeleteDocument
+- Queries with filters, orderBy, limit, offset (RunQuery); composite and unary filters supported
+- Batch get (`doc(id).get()`)
+- Real-time listeners (Listen) and Write stream
+- Aggregation queries (RunAggregationQuery; COUNT supported)
+- ListCollectionIds (`doc.ref.listCollections()`)
 
-Possible future work:
+**Firebase Auth emulator** — Implemented: lookup, createUser, deleteUser, updateUser (Identity Toolkit API in memory).
 
-- Transactions
-- Real-time listeners
+**Possible future work:**
+
+- Transactions (BeginTransaction, Rollback), BatchWrite
+- Cursor-based pagination (startAt/endAt) in RunQuery
 - Persistence to disk
 - Security rules emulation
 
