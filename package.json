@@ -30,6 +30,14 @@
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/neverbot/firebase-mocker.git"
+  },
+  "bugs": {
+    "url": "https://github.com/neverbot/firebase-mocker/issues"
+  },
+  "homepage": "https://github.com/neverbot/firebase-mocker#readme",
   "devDependencies": {
     "@eslint/js": "^9.39.2",
     "@types/chai": "^5.2.3",
