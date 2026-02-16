@@ -217,8 +217,8 @@ export function normalizeGrpcValueToFirestoreValue(
     if (typeof raw === 'string') {
       iso = raw;
     } else if (raw && typeof raw === 'object' && 'seconds' in raw) {
-      const sec = Number((raw as any).seconds) || 0;
-      const nan = Number((raw as any).nanos) || 0;
+      const sec = Number(raw.seconds) || 0;
+      const nan = Number(raw.nanos) || 0;
       iso = new Date(sec * 1000 + nan / 1000000).toISOString();
     } else {
       iso = new Date().toISOString();

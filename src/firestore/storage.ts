@@ -114,7 +114,9 @@ export class Storage {
         const seen = new WeakSet<object>();
         const json = JSON.stringify(doc, (_, v) => {
           if (v !== null && typeof v === 'object') {
-            if (seen.has(v)) return undefined;
+            if (seen.has(v)) {
+              return undefined;
+            }
             seen.add(v);
           }
           return v;
@@ -148,11 +150,15 @@ export class Storage {
     const prefix = parentPath ? `${parentPath}/` : '';
     const collectionIds = new Set<string>();
     for (const key of keys) {
-      if (!key.startsWith(prefix)) continue;
+      if (!key.startsWith(prefix)) {
+        continue;
+      }
       const suffix = key.slice(prefix.length);
       const nextSlash = suffix.indexOf('/');
       if (nextSlash === -1) {
-        if (suffix.length > 0) collectionIds.add(suffix);
+        if (suffix.length > 0) {
+          collectionIds.add(suffix);
+        }
       }
     }
     return Array.from(collectionIds).sort();

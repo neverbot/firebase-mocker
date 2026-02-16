@@ -146,13 +146,13 @@ export class AuthServer {
     if (emailArr && emailArr.length > 0) {
       user = this.storage.getByEmail(emailArr[0]);
       this.logger.info(
-        'server',
+        'auth',
         `[AUTH DEBUG] [${this.debugTs()}] lookup by email ${emailArr[0]} => ${user ? `found uid=${user.localId}` : 'not found'}`,
       );
     } else if (localIdArr && localIdArr.length > 0) {
       user = this.storage.getByUid(localIdArr[0]);
       this.logger.info(
-        'server',
+        'auth',
         `[AUTH DEBUG] [${this.debugTs()}] lookup by localId ${localIdArr[0]} => ${user ? `found email=${user.email}` : 'not found'}`,
       );
     }
@@ -192,7 +192,7 @@ export class AuthServer {
     );
     if (!email || typeof email !== 'string') {
       this.logger.info(
-        'server',
+        'auth',
         `[AUTH DEBUG] [${this.debugTs()}] create => 400 INVALID_EMAIL (missing or invalid email)`,
       );
       send(400, { error: { message: 'INVALID_EMAIL', code: 400 } });
@@ -203,7 +203,7 @@ export class AuthServer {
     if (existing) {
       const allUids = this.storage.listUids();
       this.logger.info(
-        'server',
+        'auth',
         `[AUTH DEBUG] [${this.debugTs()}] create => 400 EMAIL_ALREADY_IN_USE | email=${email} already exists as uid=${existing.localId} (created ${existing.createdAt}) | total users in emulator: ${allUids.length} [${allUids.join(', ')}]`,
       );
       send(400, {
@@ -266,7 +266,7 @@ export class AuthServer {
       this.logger.info('auth', `[AUTH] Deleted user ${localId}`);
     } else {
       this.logger.info(
-        'server',
+        'auth',
         `[AUTH DEBUG] [${this.debugTs()}] delete: uid ${localId} not in storage (no-op)`,
       );
     }
@@ -290,7 +290,7 @@ export class AuthServer {
     const user = this.storage.getByUid(localId);
     if (!user) {
       this.logger.info(
-        'server',
+        'auth',
         `[AUTH DEBUG] [${this.debugTs()}] update => 400 USER_NOT_FOUND for uid=${localId}`,
       );
       send(400, { error: { message: 'USER_NOT_FOUND', code: 400 } });

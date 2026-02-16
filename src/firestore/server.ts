@@ -6,8 +6,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as grpc from '@grpc/grpc-js';
 import * as protobuf from 'protobufjs';
+import { config } from '../config';
 import { getLogger } from '../logger';
-import { Storage } from './storage';
 import {
   FirestoreDocument,
   FirestoreValue,
@@ -23,7 +23,7 @@ import {
   sanitizeGrpcFieldsForResponse,
   normalizeGrpcValueToFirestoreValue,
 } from '../utils';
-import { config } from '../config';
+import { Storage } from './storage';
 
 export class FirestoreServer {
   private readonly storage: Storage;
@@ -885,255 +885,268 @@ export class FirestoreServer {
   private handleRunQuery(call: grpc.ServerWritableStream<any, any>): void {
     const rawRequest = call.request;
     setImmediate(() => {
-    try {
-      // Serialize to plain copy so we never touch proto getters again (they can block).
-      let request: any;
       try {
-        const seen = new WeakSet<object>();
-        const json = JSON.stringify(rawRequest, (k, v) => {
-          try {
-            if (v !== null && typeof v === 'object') {
-              if (seen.has(v)) return undefined;
-              seen.add(v);
+        // Serialize to plain copy so we never touch proto getters again (they can block).
+        let request: any;
+        try {
+          const seen = new WeakSet<object>();
+          const json = JSON.stringify(rawRequest, (k, v) => {
+            try {
+              if (v !== null && typeof v === 'object') {
+                if (seen.has(v)) {
+                  return undefined;
+                }
+                seen.add(v);
+              }
+              return v;
+            } catch {
+              return undefined;
             }
-            return v;
-          } catch {
-            return undefined;
-          }
-        });
-        request = JSON.parse(json);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        call.destroy({
-          code: grpc.status.INTERNAL,
-          message: `RunQuery request serialization failed: ${msg}`,
-        } as grpc.ServiceError);
-        return;
-      }
-      const parent = request.parent || '';
-      // Handle both camelCase (from JSON protos) and snake_case formats
-      const structuredQuery =
-        request.structured_query || request.structuredQuery || {};
-      const from = structuredQuery.from;
+          });
+          request = JSON.parse(json);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          call.destroy({
+            code: grpc.status.INTERNAL,
+            message: `RunQuery request serialization failed: ${msg}`,
+          } as grpc.ServiceError);
+          return;
+        }
+        const parent = request.parent || '';
+        // Handle both camelCase (from JSON protos) and snake_case formats
+        const structuredQuery =
+          request.structured_query || request.structuredQuery || {};
+        const from = structuredQuery.from;
 
-      // Parse parent path: "projects/p/databases/db/documents" or "projects/p/databases/db/documents/events/ev123"
-      const parts = parent.split('/');
-      const projectIndex = parts.indexOf('projects');
-      const dbIndex = parts.indexOf('databases');
-      const docsIndex = parts.indexOf('documents');
-      const projectId =
-        projectIndex >= 0 && projectIndex + 1 < parts.length
-          ? parts[projectIndex + 1]
-          : 'test-project';
-      const databaseId =
-        dbIndex >= 0 && dbIndex + 1 < parts.length
-          ? parts[dbIndex + 1]
-          : '(default)';
+        // Parse parent path: "projects/p/databases/db/documents" or "projects/p/databases/db/documents/events/ev123"
+        const parts = parent.split('/');
+        const projectIndex = parts.indexOf('projects');
+        const dbIndex = parts.indexOf('databases');
+        const docsIndex = parts.indexOf('documents');
+        const projectId =
+          projectIndex >= 0 && projectIndex + 1 < parts.length
+            ? parts[projectIndex + 1]
+            : 'test-project';
+        const databaseId =
+          dbIndex >= 0 && dbIndex + 1 < parts.length
+            ? parts[dbIndex + 1]
+            : '(default)';
 
-      // Get collection ID from the query
-      // According to proto, StructuredQuery.from is a single CollectionSelector, not an array
-      // But with JSON protos, it might come as an object with numeric keys (array-like)
-      let collectionId = '';
-      if (from) {
-        // Try collection_id first (standard field name)
-        if (from.collection_id) {
-          collectionId = from.collection_id;
-        } else if (from.collectionId) {
-          // Try camelCase (from JSON protos)
-          collectionId = from.collectionId;
-        } else if (typeof from === 'object') {
-          // Handle array-like object (numeric keys)
-          const keys = Object.keys(from);
-          if (keys.length > 0) {
-            const firstKey = keys[0];
-            const firstFrom = from[firstKey];
+        // Get collection ID from the query
+        // According to proto, StructuredQuery.from is a single CollectionSelector, not an array
+        // But with JSON protos, it might come as an object with numeric keys (array-like)
+        let collectionId = '';
+        if (from) {
+          // Try collection_id first (standard field name)
+          if (from.collection_id) {
+            collectionId = from.collection_id;
+          } else if (from.collectionId) {
+            // Try camelCase (from JSON protos)
+            collectionId = from.collectionId;
+          } else if (typeof from === 'object') {
+            // Handle array-like object (numeric keys)
+            const keys = Object.keys(from);
+            if (keys.length > 0) {
+              const firstKey = keys[0];
+              const firstFrom = from[firstKey];
+              if (firstFrom) {
+                collectionId =
+                  firstFrom.collection_id || firstFrom.collectionId || '';
+              }
+            }
+          } else if (Array.isArray(from) && from.length > 0) {
+            // Fallback: handle as array
+            const firstFrom = from[0];
             if (firstFrom) {
               collectionId =
                 firstFrom.collection_id || firstFrom.collectionId || '';
             }
           }
-        } else if (Array.isArray(from) && from.length > 0) {
-          // Fallback: handle as array
-          const firstFrom = from[0];
-          if (firstFrom) {
-            collectionId =
-              firstFrom.collection_id || firstFrom.collectionId || '';
+        }
+
+        // Build full collection path for subcollections (same as ListDocuments)
+        const pathAfterDocuments =
+          docsIndex >= 0 ? parts.slice(docsIndex + 1).join('/') : '';
+        const collectionPath = pathAfterDocuments
+          ? `${pathAfterDocuments}/${collectionId}`
+          : collectionId;
+
+        // Get filter from query (where clause)
+        const where =
+          structuredQuery.where ||
+          structuredQuery.filter ||
+          structuredQuery.Where ||
+          structuredQuery.Filter;
+
+        if (where) {
+          this.logger.log(
+            'grpc',
+            `RunQuery DEBUG: Query has filter/where clause: ${JSON.stringify(where).substring(0, 500)}`,
+          );
+        } else {
+          this.logger.log(
+            'grpc',
+            `RunQuery DEBUG: Query has NO filter/where clause`,
+          );
+        }
+
+        this.logger.log(
+          'grpc',
+          `RunQuery DEBUG: Querying collection with projectId=${projectId}, databaseId=${databaseId}, collectionPath=${collectionPath}`,
+        );
+
+        // Get documents from storage
+        let documents = this.storage.listDocuments(
+          projectId,
+          databaseId,
+          collectionPath,
+        );
+
+        this.logger.log(
+          'grpc',
+          `RunQuery DEBUG: Found ${documents.length} documents in collection before filtering`,
+        );
+
+        // Apply filters if present
+        if (where) {
+          documents = this.applyQueryFilters(documents, where);
+          this.logger.log(
+            'grpc',
+            `RunQuery DEBUG: Found ${documents.length} documents after filtering`,
+          );
+        }
+
+        // Apply orderBy if present (sort before limit/offset)
+        const orderBy =
+          structuredQuery.order_by ??
+          structuredQuery.orderBy ??
+          structuredQuery.OrderBy;
+        const orderByLen = orderBy
+          ? Array.isArray(orderBy)
+            ? orderBy.length
+            : Object.keys(orderBy).length
+          : 0;
+        if (orderByLen > 0) {
+          documents = this.applyOrderBy(documents, orderBy);
+        }
+
+        // Apply offset and limit (StructuredQuery.offset / .limit)
+        // Proto: limit=5, offset=6. Support camelCase, snake_case, numeric keys, and Long-like objects
+        let rawLimit: unknown =
+          structuredQuery.limit ??
+          structuredQuery.Limit ??
+          structuredQuery[5] ??
+          rawRequest?.structured_query?.limit ??
+          rawRequest?.structuredQuery?.limit;
+        let rawOffset: unknown =
+          structuredQuery.offset ??
+          structuredQuery.Offset ??
+          structuredQuery[6] ??
+          rawRequest?.structured_query?.offset ??
+          rawRequest?.structuredQuery?.offset;
+        if (rawLimit === undefined || rawOffset === undefined) {
+          for (const [k, v] of Object.entries(structuredQuery)) {
+            if (String(k).toLowerCase() === 'limit') {
+              rawLimit = v;
+            }
+            if (String(k).toLowerCase() === 'offset') {
+              rawOffset = v;
+            }
           }
         }
-      }
-
-      // Build full collection path for subcollections (same as ListDocuments)
-      const pathAfterDocuments =
-        docsIndex >= 0 ? parts.slice(docsIndex + 1).join('/') : '';
-      const collectionPath = pathAfterDocuments
-        ? `${pathAfterDocuments}/${collectionId}`
-        : collectionId;
-
-      // Get filter from query (where clause)
-      const where =
-        structuredQuery.where ||
-        structuredQuery.filter ||
-        structuredQuery.Where ||
-        structuredQuery.Filter;
-
-      if (where) {
-        this.logger.log(
-          'grpc',
-          `RunQuery DEBUG: Query has filter/where clause: ${JSON.stringify(where).substring(0, 500)}`,
-        );
-      } else {
-        this.logger.log(
-          'grpc',
-          `RunQuery DEBUG: Query has NO filter/where clause`,
-        );
-      }
-
-      this.logger.log(
-        'grpc',
-        `RunQuery DEBUG: Querying collection with projectId=${projectId}, databaseId=${databaseId}, collectionPath=${collectionPath}`,
-      );
-
-      // Get documents from storage
-      let documents = this.storage.listDocuments(
-        projectId,
-        databaseId,
-        collectionPath,
-      );
-
-      this.logger.log(
-        'grpc',
-        `RunQuery DEBUG: Found ${documents.length} documents in collection before filtering`,
-      );
-
-      // Apply filters if present
-      if (where) {
-        documents = this.applyQueryFilters(documents, where);
-        this.logger.log(
-          'grpc',
-          `RunQuery DEBUG: Found ${documents.length} documents after filtering`,
-        );
-      }
-
-      // Apply orderBy if present (sort before limit/offset)
-      const orderBy =
-        structuredQuery.order_by ??
-        structuredQuery.orderBy ??
-        structuredQuery.OrderBy;
-      const orderByLen = orderBy
-        ? Array.isArray(orderBy)
-          ? orderBy.length
-          : Object.keys(orderBy).length
-        : 0;
-      if (orderByLen > 0) {
-        documents = this.applyOrderBy(documents, orderBy);
-      }
-
-      // Apply offset and limit (StructuredQuery.offset / .limit)
-      // Proto: limit=5, offset=6. Support camelCase, snake_case, numeric keys, and Long-like objects
-      let rawLimit: unknown =
-        structuredQuery.limit ??
-        structuredQuery.Limit ??
-        structuredQuery[5] ??
-        (rawRequest as any)?.structured_query?.limit ??
-        (rawRequest as any)?.structuredQuery?.limit;
-      let rawOffset: unknown =
-        structuredQuery.offset ??
-        structuredQuery.Offset ??
-        structuredQuery[6] ??
-        (rawRequest as any)?.structured_query?.offset ??
-        (rawRequest as any)?.structuredQuery?.offset;
-      if (rawLimit === undefined || rawOffset === undefined) {
-        for (const [k, v] of Object.entries(structuredQuery)) {
-          if (String(k).toLowerCase() === 'limit') rawLimit = v;
-          if (String(k).toLowerCase() === 'offset') rawOffset = v;
+        // Support Long-like objects and protobuf Int32Value { value: number }
+        const toNum = (v: unknown): number => {
+          if (v === null || v === undefined) {
+            return 0;
+          }
+          if (typeof v === 'number' && !Number.isNaN(v)) {
+            return Math.max(0, v);
+          }
+          if (typeof v === 'object' && v !== null) {
+            if ('toNumber' in (v as any)) {
+              return Math.max(0, (v as any).toNumber());
+            }
+            if ('value' in (v as any) && typeof (v as any).value === 'number') {
+              return Math.max(0, (v as any).value);
+            }
+          }
+          return Math.max(0, Number(v) || 0);
+        };
+        const offset = toNum(rawOffset);
+        const limit = toNum(rawLimit);
+        if (documents.length > 0 && (limit > 0 || offset > 0)) {
+          this.logger.log(
+            'grpc',
+            `RunQuery DEBUG: Applying offset=${offset}, limit=${limit}`,
+          );
         }
-      }
-      // Support Long-like objects and protobuf Int32Value { value: number }
-      const toNum = (v: unknown): number => {
-        if (v == null) return 0;
-        if (typeof v === 'number' && !Number.isNaN(v)) return Math.max(0, v);
-        if (typeof v === 'object' && v !== null) {
-          if ('toNumber' in (v as any)) return Math.max(0, (v as any).toNumber());
-          if ('value' in (v as any) && typeof (v as any).value === 'number')
-            return Math.max(0, (v as any).value);
+        if (offset > 0) {
+          documents = documents.slice(offset);
         }
-        return Math.max(0, Number(v) || 0);
-      };
-      const offset = toNum(rawOffset);
-      const limit = toNum(rawLimit);
-      if (documents.length > 0 && (limit > 0 || offset > 0)) {
-        this.logger.log(
-          'grpc',
-          `RunQuery DEBUG: Applying offset=${offset}, limit=${limit}`,
-        );
-      }
-      if (offset > 0) {
-        documents = documents.slice(offset);
-      }
-      if (limit > 0) {
-        documents = documents.slice(0, limit);
-      }
+        if (limit > 0) {
+          documents = documents.slice(0, limit);
+        }
 
-      // Convert current time to Timestamp format (seconds and nanos)
-      const now = new Date();
-      const timestamp = {
-        seconds: Math.floor(now.getTime() / 1000),
-        nanos: (now.getTime() % 1000) * 1000000,
-      };
+        // Convert current time to Timestamp format (seconds and nanos)
+        const now = new Date();
+        const timestamp = {
+          seconds: Math.floor(now.getTime() / 1000),
+          nanos: (now.getTime() % 1000) * 1000000,
+        };
 
-      // Send responses as a stream. End the stream only after the last write
-      // has been flushed, so the client receives all messages before stream close.
-      // According to proto: RunQueryResponse has document = 1, read_time = 2, skipped_results = 3
-      // When loaded from JSON, protobufjs uses camelCase: readTime, skippedResults
-      const responses: any[] =
-        documents.length === 0
-          ? [
-              {
-                readTime: timestamp,
-                skippedResults: 0,
-              },
-            ]
-          : documents.map((doc) => {
-              const docId = (doc.name && doc.name.split('/').pop()) || '';
-              const documentPath = buildDocumentPath(
-                projectId,
-                databaseId,
-                collectionPath,
-                docId,
-              );
-              const reconstructedFields = this.reconstructDocumentFields(doc);
-              const defaultTimestamp = toTimestamp(now);
-              return {
-                document: {
-                  name: documentPath,
-                  fields: toGrpcFields(reconstructedFields),
-                  createTime: doc.createTime
-                    ? toTimestamp(new Date(doc.createTime))
-                    : defaultTimestamp,
-                  updateTime: doc.updateTime
-                    ? toTimestamp(new Date(doc.updateTime))
-                    : defaultTimestamp,
+        // Send responses as a stream. End the stream only after the last write
+        // has been flushed, so the client receives all messages before stream close.
+        // According to proto: RunQueryResponse has document = 1, read_time = 2, skipped_results = 3
+        // When loaded from JSON, protobufjs uses camelCase: readTime, skippedResults
+        const responses: any[] =
+          documents.length === 0
+            ? [
+                {
+                  readTime: timestamp,
+                  skippedResults: 0,
                 },
-                readTime: timestamp,
-                skippedResults: 0,
-              };
-            });
+              ]
+            : documents.map((doc) => {
+                const docId = (doc.name && doc.name.split('/').pop()) || '';
+                const documentPath = buildDocumentPath(
+                  projectId,
+                  databaseId,
+                  collectionPath,
+                  docId,
+                );
+                const reconstructedFields = this.reconstructDocumentFields(doc);
+                const defaultTimestamp = toTimestamp(now);
+                return {
+                  document: {
+                    name: documentPath,
+                    fields: toGrpcFields(reconstructedFields),
+                    createTime: doc.createTime
+                      ? toTimestamp(new Date(doc.createTime))
+                      : defaultTimestamp,
+                    updateTime: doc.updateTime
+                      ? toTimestamp(new Date(doc.updateTime))
+                      : defaultTimestamp,
+                  },
+                  readTime: timestamp,
+                  skippedResults: 0,
+                };
+              });
 
-      // Send all responses then end the stream. Defer end() to the next tick so
-      // the Writable has a chance to queue the writes; in gRPC/Node, calling
-      // end() in the same tick as write() can leave the stream not fully flushed.
-      for (const response of responses) {
-        call.write(response);
+        // Send all responses then end the stream. Defer end() to the next tick so
+        // the Writable has a chance to queue the writes; in gRPC/Node, calling
+        // end() in the same tick as write() can leave the stream not fully flushed.
+        for (const response of responses) {
+          call.write(response);
+        }
+        call.end();
+      } catch (error: unknown) {
+        const errorMessage =
+          error instanceof Error ? error.message : 'Unknown error';
+        call.destroy({
+          code: grpc.status.INTERNAL,
+          message: errorMessage,
+        } as grpc.ServiceError);
       }
-      call.end();
-    } catch (error: unknown) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-      call.destroy({
-        code: grpc.status.INTERNAL,
-        message: errorMessage,
-      } as grpc.ServiceError);
-    }
     });
   }
 
@@ -1153,7 +1166,9 @@ export class FirestoreServer {
           const seen = new WeakSet<object>();
           const json = JSON.stringify(rawRequest, (_, v) => {
             if (v !== null && typeof v === 'object') {
-              if (seen.has(v)) return undefined;
+              if (seen.has(v)) {
+                return undefined;
+              }
               seen.add(v);
             }
             return v;
@@ -1196,9 +1211,11 @@ export class FirestoreServer {
 
         let collectionId = '';
         if (from) {
-          if (from.collection_id) collectionId = from.collection_id;
-          else if (from.collectionId) collectionId = from.collectionId;
-          else if (typeof from === 'object' && Object.keys(from).length > 0) {
+          if (from.collection_id) {
+            collectionId = from.collection_id;
+          } else if (from.collectionId) {
+            collectionId = from.collectionId;
+          } else if (typeof from === 'object' && Object.keys(from).length > 0) {
             const first = from[Object.keys(from)[0]];
             collectionId = first?.collection_id || first?.collectionId || '';
           } else if (Array.isArray(from) && from.length > 0) {
@@ -1235,10 +1252,15 @@ export class FirestoreServer {
           nanos: (now.getTime() % 1000) * 1000000,
         };
 
-        const aggregateFields: Record<string, { integerValue?: string; doubleValue?: number }> = {};
+        const aggregateFields: Record<
+          string,
+          { integerValue?: string; doubleValue?: number }
+        > = {};
         for (const agg of Array.isArray(aggregations) ? aggregations : []) {
           const alias =
-            agg.alias ?? agg.Alias ?? `alias_${Object.keys(aggregateFields).length}`;
+            agg.alias ??
+            agg.Alias ??
+            `alias_${Object.keys(aggregateFields).length}`;
           if (agg.count !== undefined || agg.Count !== undefined) {
             aggregateFields[alias] = { integerValue: String(count) };
           } else if (agg.sum !== undefined || agg.Sum !== undefined) {
@@ -1258,8 +1280,7 @@ export class FirestoreServer {
         call.write(response);
         call.end();
       } catch (error: unknown) {
-        const msg =
-          error instanceof Error ? error.message : String(error);
+        const msg = error instanceof Error ? error.message : String(error);
         call.destroy({
           code: grpc.status.INTERNAL,
           message: `RunAggregationQuery failed: ${msg}`,
@@ -1280,8 +1301,7 @@ export class FirestoreServer {
       return documents;
     }
     const orders = arr.map((o: any) => {
-      const field =
-        o.field || o.Field || o.field_reference || o.fieldReference;
+      const field = o.field || o.Field || o.field_reference || o.fieldReference;
       const path =
         field?.field_path ?? field?.fieldPath ?? field?.field_path_string ?? '';
       const dir = o.direction ?? o.Direction ?? 1;
@@ -1291,8 +1311,14 @@ export class FirestoreServer {
       for (const { path, ascending } of orders) {
         const fieldsA = this.reconstructDocumentFields(a);
         const fieldsB = this.reconstructDocumentFields(b);
-        const valA = path === '__name__' ? (a as FirestoreDocument).name : this.getFieldValueByPath(fieldsA, path);
-        const valB = path === '__name__' ? (b as FirestoreDocument).name : this.getFieldValueByPath(fieldsB, path);
+        const valA =
+          path === '__name__'
+            ? a.name
+            : this.getFieldValueByPath(fieldsA, path);
+        const valB =
+          path === '__name__'
+            ? b.name
+            : this.getFieldValueByPath(fieldsB, path);
         const cmp = this.compareValuesForOrder(valA, valB);
         if (cmp !== 0) {
           return ascending ? cmp : -cmp;
@@ -1303,22 +1329,45 @@ export class FirestoreServer {
   }
 
   private compareValuesForOrder(a: any, b: any): number {
-    if (a == null && b == null) return 0;
-    if (a == null) return 1;
-    if (b == null) return -1;
-    const aStr = (a as FirestoreValue).stringValue ?? (typeof a === 'string' ? a : undefined);
-    const bStr = (b as FirestoreValue).stringValue ?? (typeof b === 'string' ? b : undefined);
+    if ((a === null || a === undefined) && (b === null || b === undefined)) {
+      return 0;
+    }
+    if (a === null || a === undefined) {
+      return 1;
+    }
+    if (b === null || b === undefined) {
+      return -1;
+    }
+    const aStr =
+      (a as FirestoreValue).stringValue ??
+      (typeof a === 'string' ? a : undefined);
+    const bStr =
+      (b as FirestoreValue).stringValue ??
+      (typeof b === 'string' ? b : undefined);
     if (aStr !== undefined && bStr !== undefined) {
       return aStr.localeCompare(bStr);
     }
-    const aNum = (a as FirestoreValue).integerValue ?? (a as FirestoreValue).doubleValue ?? (typeof a === 'number' ? a : undefined);
-    const bNum = (b as FirestoreValue).integerValue ?? (b as FirestoreValue).doubleValue ?? (typeof b === 'number' ? b : undefined);
+    const aNum =
+      (a as FirestoreValue).integerValue ??
+      (a as FirestoreValue).doubleValue ??
+      (typeof a === 'number' ? a : undefined);
+    const bNum =
+      (b as FirestoreValue).integerValue ??
+      (b as FirestoreValue).doubleValue ??
+      (typeof b === 'number' ? b : undefined);
     if (aNum !== undefined && bNum !== undefined) {
       return Number(aNum) - Number(bNum);
     }
     const aTs = this.timestampToMs(a as FirestoreValue);
     const bTs = this.timestampToMs(b as FirestoreValue);
-    if (aTs != null && bTs != null) return aTs - bTs;
+    if (
+      aTs !== null &&
+      aTs !== undefined &&
+      bTs !== null &&
+      bTs !== undefined
+    ) {
+      return aTs - bTs;
+    }
     return String(a).localeCompare(String(b));
   }
 
@@ -1378,7 +1427,7 @@ export class FirestoreServer {
    * Builds a plain object from own property descriptors only, then normalizes.
    */
   private safeNormalizeFilterValue(value: any): FirestoreValue {
-    if (value == null || typeof value !== 'object') {
+    if (value === null || value === undefined || typeof value !== 'object') {
       return { nullValue: null };
     }
     let keys: string[];
@@ -1457,16 +1506,20 @@ export class FirestoreServer {
           let fieldValue: FirestoreValue | undefined;
           if (fieldPath === '__name__') {
             // __name__ is the document resource path, not a stored field
-            const docName = (doc as FirestoreDocument).name;
+            const docName = doc.name;
             fieldValue =
-              docName != null && docName !== ''
+              docName !== null && docName !== undefined && docName !== ''
                 ? { referenceValue: docName }
                 : undefined;
           } else {
             const docFields = this.reconstructDocumentFields(doc);
             fieldValue = this.getFieldValueByPath(docFields, fieldPath);
             // Normalize document field value so timestamp objects become ISO strings
-            if (fieldValue && typeof fieldValue === 'object' && Object.keys(fieldValue).length > 0) {
+            if (
+              fieldValue &&
+              typeof fieldValue === 'object' &&
+              Object.keys(fieldValue).length > 0
+            ) {
               fieldValue = normalizeGrpcValueToFirestoreValue(fieldValue);
             }
           }
@@ -1727,11 +1780,15 @@ export class FirestoreServer {
    */
   private timestampToMs(v: FirestoreValue): number | null {
     const raw = (v as any).timestampValue ?? (v as any).timestamp_value;
-    if (raw === undefined) return null;
-    if (typeof raw === 'string') return new Date(raw).getTime();
+    if (raw === undefined) {
+      return null;
+    }
+    if (typeof raw === 'string') {
+      return new Date(raw).getTime();
+    }
     if (raw && typeof raw === 'object' && 'seconds' in raw) {
-      const sec = Number((raw as any).seconds) || 0;
-      const nan = Number((raw as any).nanos) || 0;
+      const sec = Number(raw.seconds) || 0;
+      const nan = Number(raw.nanos) || 0;
       return sec * 1000 + nan / 1000000;
     }
     return null;
@@ -1762,7 +1819,9 @@ export class FirestoreServer {
     }
     const aTs = this.timestampToMs(a);
     const bTs = this.timestampToMs(b);
-    if (aTs !== null && bTs !== null) return aTs === bTs;
+    if (aTs !== null && bTs !== null) {
+      return aTs === bTs;
+    }
     if (a.timestampValue !== undefined && b.timestampValue !== undefined) {
       return a.timestampValue === b.timestampValue;
     }
@@ -1784,7 +1843,9 @@ export class FirestoreServer {
     }
     const aTs = this.timestampToMs(a);
     const bTs = this.timestampToMs(b);
-    if (aTs !== null && bTs !== null) return aTs < bTs;
+    if (aTs !== null && bTs !== null) {
+      return aTs < bTs;
+    }
     return false;
   }
 
@@ -1803,7 +1864,9 @@ export class FirestoreServer {
     }
     const aTs = this.timestampToMs(a);
     const bTs = this.timestampToMs(b);
-    if (aTs !== null && bTs !== null) return aTs > bTs;
+    if (aTs !== null && bTs !== null) {
+      return aTs > bTs;
+    }
     return false;
   }
 
@@ -2001,7 +2064,9 @@ export class FirestoreServer {
       const rawFields = request.document?.fields || {};
       const normalizedFields: Record<string, FirestoreValue> = {};
       Object.keys(rawFields).forEach((key) => {
-        normalizedFields[key] = normalizeGrpcValueToFirestoreValue(rawFields[key]);
+        normalizedFields[key] = normalizeGrpcValueToFirestoreValue(
+          rawFields[key],
+        );
       });
       const document = toFirestoreDocument(path, normalizedFields);
       document.name = path;
@@ -2068,7 +2133,9 @@ export class FirestoreServer {
   ): void {
     let callbackInvoked = false;
     const safeCallback: grpc.sendUnaryData<any> = (err, value) => {
-      if (callbackInvoked) return;
+      if (callbackInvoked) {
+        return;
+      }
       callbackInvoked = true;
       callback(err, value);
     };
@@ -2104,10 +2171,13 @@ export class FirestoreServer {
           'grpc',
           `Commit: ${writes.length} writes - ERROR: Invalid database path`,
         );
-        safeCallback({
-          code: grpc.status.INVALID_ARGUMENT,
-          message: `Invalid database path: ${database}`,
-        }, null);
+        safeCallback(
+          {
+            code: grpc.status.INVALID_ARGUMENT,
+            message: `Invalid database path: ${database}`,
+          },
+          null,
+        );
         return;
       }
 
@@ -2124,8 +2194,9 @@ export class FirestoreServer {
           operation = 'update';
         } else {
           const deletePath = write.delete ?? write['delete'];
-          if (deletePath != null) {
-            docPath = typeof deletePath === 'string' ? deletePath : String(deletePath);
+          if (deletePath !== null && deletePath !== undefined) {
+            docPath =
+              typeof deletePath === 'string' ? deletePath : String(deletePath);
             operation = 'delete';
           }
         }
@@ -2191,10 +2262,13 @@ export class FirestoreServer {
               'grpc',
               `Commit response: ERROR - Invalid document path in write`,
             );
-            safeCallback({
-              code: grpc.status.INVALID_ARGUMENT,
-              message: `Invalid document path: ${docPath}`,
-            }, null);
+            safeCallback(
+              {
+                code: grpc.status.INVALID_ARGUMENT,
+                message: `Invalid document path: ${docPath}`,
+              },
+              null,
+            );
             return;
           }
 
@@ -2212,9 +2286,18 @@ export class FirestoreServer {
           const fieldTypes: Record<string, FieldType> = {};
 
           let fieldsSource: Record<string, any> = doc.fields || {};
-          if (fieldsSource && typeof (fieldsSource as any).toObject === 'function') {
+          if (
+            fieldsSource &&
+            typeof (fieldsSource as any).toObject === 'function'
+          ) {
             try {
-              fieldsSource = (fieldsSource as any).toObject({ longs: String, enums: String, bytes: String, defaults: true, oneofs: true });
+              fieldsSource = (fieldsSource as any).toObject({
+                longs: String,
+                enums: String,
+                bytes: String,
+                defaults: true,
+                oneofs: true,
+              });
             } catch {
               fieldsSource = doc.fields || {};
             }
@@ -2223,9 +2306,19 @@ export class FirestoreServer {
             Object.keys(fieldsSource).forEach((key) => {
               let value = fieldsSource[key];
               // Expand protobuf Message to plain object so oneof (e.g. timestamp_value) is readable
-              if (value && typeof value === 'object' && typeof (value as any).toObject === 'function') {
+              if (
+                value &&
+                typeof value === 'object' &&
+                typeof value.toObject === 'function'
+              ) {
                 try {
-                  value = (value as any).toObject({ longs: String, enums: String, bytes: String, defaults: true, oneofs: true });
+                  value = value.toObject({
+                    longs: String,
+                    enums: String,
+                    bytes: String,
+                    defaults: true,
+                    oneofs: true,
+                  });
                 } catch {
                   // keep value as-is
                 }
@@ -2233,11 +2326,17 @@ export class FirestoreServer {
               // Ensure the value is a proper FirestoreValue object
               if (value && typeof value === 'object') {
                 // Always try to normalize first (handles gRPC Value with timestamp_value etc.)
-                const normalizedValue = normalizeGrpcValueToFirestoreValue(value);
-                if (normalizedValue && Object.keys(normalizedValue).length > 0) {
+                const normalizedValue =
+                  normalizeGrpcValueToFirestoreValue(value);
+                if (
+                  normalizedValue &&
+                  Object.keys(normalizedValue).length > 0
+                ) {
                   fields[key] = normalizedValue;
                   const detectedType = this.detectFieldType(normalizedValue);
-                  if (detectedType) fieldTypes[key] = detectedType;
+                  if (detectedType) {
+                    fieldTypes[key] = detectedType;
+                  }
                   return;
                 }
                 if (Object.keys(value).length === 0) {
@@ -2302,7 +2401,9 @@ export class FirestoreServer {
                 if (Object.keys(normalizedValueFallback).length > 0) {
                   fields[key] = normalizedValueFallback;
                   // Store the detected type in metadata
-                  const detectedType = this.detectFieldType(normalizedValueFallback);
+                  const detectedType = this.detectFieldType(
+                    normalizedValueFallback,
+                  );
                   if (detectedType) {
                     fieldTypes[key] = detectedType;
                   }
@@ -2313,13 +2414,17 @@ export class FirestoreServer {
 
           // Apply updateTransforms (e.g. serverTimestamp) to fields before merging
           const updateTransforms =
-            (write as any).updateTransforms || (write as any).update_transforms;
+            write.updateTransforms || write.update_transforms;
           if (Array.isArray(updateTransforms)) {
             updateTransforms.forEach((t: any) => {
-              if (!t) return;
+              if (!t) {
+                return;
+              }
               const fieldPath =
                 t.fieldPath || t.field_path || t.field || t.Field || '';
-              if (!fieldPath) return;
+              if (!fieldPath) {
+                return;
+              }
 
               // Handle setToServerValue: REQUEST_TIME (serverTimestamp)
               const serverValue =
@@ -2340,16 +2445,20 @@ export class FirestoreServer {
           }
 
           // Apply top-level transform with fieldTransforms (less common, but supported)
-          const transform = (write as any).transform;
+          const transform = write.transform;
           const fieldTransforms =
             transform &&
             (transform.fieldTransforms || transform.field_transforms);
           if (Array.isArray(fieldTransforms)) {
             fieldTransforms.forEach((t: any) => {
-              if (!t) return;
+              if (!t) {
+                return;
+              }
               const fieldPath =
                 t.fieldPath || t.field_path || t.field || t.Field || '';
-              if (!fieldPath) return;
+              if (!fieldPath) {
+                return;
+              }
 
               const serverValue =
                 t.setToServerValue || t.set_to_server_value || t.serverValue;
@@ -2438,9 +2547,10 @@ export class FirestoreServer {
           });
         } else {
           const deletePath = write.delete ?? write['delete'];
-          if (deletePath != null) {
+          if (deletePath !== null && deletePath !== undefined) {
             // Delete document
-            const docPath = typeof deletePath === 'string' ? deletePath : String(deletePath);
+            const docPath =
+              typeof deletePath === 'string' ? deletePath : String(deletePath);
             const parsed = this.parseDocumentPath(docPath);
 
             if (!parsed) {
@@ -2448,10 +2558,13 @@ export class FirestoreServer {
                 'grpc',
                 `Commit response: ERROR - Invalid document path in delete`,
               );
-              safeCallback({
-                code: grpc.status.INVALID_ARGUMENT,
-                message: `Invalid document path: ${docPath}`,
-              }, null);
+              safeCallback(
+                {
+                  code: grpc.status.INVALID_ARGUMENT,
+                  message: `Invalid document path: ${docPath}`,
+                },
+                null,
+              );
               return;
             }
 
@@ -2488,10 +2601,13 @@ export class FirestoreServer {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
       this.logger.error('grpc', `Commit error: ${errorMessage}`);
-      safeCallback({
-        code: grpc.status.INTERNAL,
-        message: errorMessage,
-      }, null);
+      safeCallback(
+        {
+          code: grpc.status.INTERNAL,
+          message: errorMessage,
+        },
+        null,
+      );
     }
   }
 
@@ -2732,7 +2848,10 @@ export class FirestoreServer {
    * no handler and could block the test process.
    */
   private handleListen(call: grpc.ServerDuplexStream<any, any>): void {
-    this.logger.log('grpc', 'Listen RPC called (not implemented, closing stream)');
+    this.logger.log(
+      'grpc',
+      'Listen RPC called (not implemented, closing stream)',
+    );
     this.destroyStreamWithUnimplemented(
       call,
       'Listen (real-time) is not supported by this emulator',
@@ -2744,7 +2863,10 @@ export class FirestoreServer {
    * closed immediately or the client can hang during cleanup/transactions.
    */
   private handleWrite(call: grpc.ServerDuplexStream<any, any>): void {
-    this.logger.log('grpc', 'Write RPC called (not implemented, closing stream)');
+    this.logger.log(
+      'grpc',
+      'Write RPC called (not implemented, closing stream)',
+    );
     this.destroyStreamWithUnimplemented(
       call,
       'Write (streaming) is not supported by this emulator',
@@ -2777,10 +2899,7 @@ export class FirestoreServer {
     if (mode === 'throw') {
       throw new Error(`${msg} ${hint}`);
     }
-    process.stderr.write(
-      `\n*** ${msg} ***\n${hint}\n\n`,
-      () => {},
-    );
+    process.stderr.write(`\n*** ${msg} ***\n${hint}\n\n`, () => {});
   }
 
   /**
@@ -2795,10 +2914,7 @@ export class FirestoreServer {
       const request = call.request;
       const parent = request.parent || '';
 
-      this.logger.log(
-        'grpc',
-        `[ListCollectionIds] parent=${parent}`,
-      );
+      this.logger.log('grpc', `[ListCollectionIds] parent=${parent}`);
 
       const parts = parent.split('/');
       const projectIndex = parts.indexOf('projects');
@@ -2917,14 +3033,22 @@ export class FirestoreServer {
             BatchGetDocuments: this.handleBatchGetDocuments.bind(this),
             Listen: this.handleListen.bind(this),
             Write: this.handleWrite.bind(this),
-            BatchWrite: (call: grpc.ServerUnaryCall<any, any>, cb: grpc.sendUnaryData<any>) =>
-              this.handleUnimplementedUnary(call, cb, 'BatchWrite'),
-            BeginTransaction: (call: grpc.ServerUnaryCall<any, any>, cb: grpc.sendUnaryData<any>) =>
-              this.handleUnimplementedUnary(call, cb, 'BeginTransaction'),
-            Rollback: (call: grpc.ServerUnaryCall<any, any>, cb: grpc.sendUnaryData<any>) =>
-              this.handleUnimplementedUnary(call, cb, 'Rollback'),
-            ListCollectionIds: (call: grpc.ServerUnaryCall<any, any>, cb: grpc.sendUnaryData<any>) =>
-              this.handleListCollectionIds(call, cb),
+            BatchWrite: (
+              call: grpc.ServerUnaryCall<any, any>,
+              cb: grpc.sendUnaryData<any>,
+            ) => this.handleUnimplementedUnary(call, cb, 'BatchWrite'),
+            BeginTransaction: (
+              call: grpc.ServerUnaryCall<any, any>,
+              cb: grpc.sendUnaryData<any>,
+            ) => this.handleUnimplementedUnary(call, cb, 'BeginTransaction'),
+            Rollback: (
+              call: grpc.ServerUnaryCall<any, any>,
+              cb: grpc.sendUnaryData<any>,
+            ) => this.handleUnimplementedUnary(call, cb, 'Rollback'),
+            ListCollectionIds: (
+              call: grpc.ServerUnaryCall<any, any>,
+              cb: grpc.sendUnaryData<any>,
+            ) => this.handleListCollectionIds(call, cb),
           };
 
           // Load proto: prefer local copy (proto/v1.json) so we always use the same
@@ -3099,10 +3223,10 @@ export class FirestoreServer {
       const promises: Promise<void>[] = [];
 
       if (this.grpcServer) {
-        this.logger.log('server', 'Stopping server...');
+        this.logger.log('grpc', 'Stopping server...');
         this.grpcServer.forceShutdown();
         this.grpcServer = undefined;
-        this.logger.log('server', 'Firestore gRPC emulator server stopped');
+        this.logger.log('grpc', 'Firestore gRPC emulator server stopped');
       }
 
       Promise.all(promises).then(() => resolve());
