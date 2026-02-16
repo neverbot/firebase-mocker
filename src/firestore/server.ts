@@ -2648,6 +2648,93 @@ export class FirestoreServer {
   }
 
   /**
+   * Handle ListCollectionIds gRPC call.
+   * Lists the IDs of collections under the given parent (database or document path).
+   */
+  private handleListCollectionIds(
+    call: grpc.ServerUnaryCall<any, any>,
+    callback: grpc.sendUnaryData<any>,
+  ): void {
+    try {
+      const request = call.request;
+      const parent = request.parent || '';
+
+      this.logger.log(
+        'grpc',
+        `[ListCollectionIds] parent=${parent}`,
+      );
+
+      const parts = parent.split('/');
+      const projectIndex = parts.indexOf('projects');
+      const dbIndex = parts.indexOf('databases');
+      const docsIndex = parts.indexOf('documents');
+
+      if (
+        projectIndex === -1 ||
+        dbIndex === -1 ||
+        docsIndex === -1 ||
+        projectIndex + 1 >= parts.length ||
+        dbIndex + 1 >= parts.length
+      ) {
+        callback({
+          code: grpc.status.INVALID_ARGUMENT,
+          message: `Invalid parent path: ${parent}`,
+        });
+        return;
+      }
+
+      const projectId = parts[projectIndex + 1];
+      const databaseId = parts[dbIndex + 1];
+      const pathAfterDocuments =
+        docsIndex + 1 < parts.length
+          ? parts.slice(docsIndex + 1).join('/')
+          : '';
+
+      const collectionIds = this.storage.listCollectionIds(
+        projectId,
+        databaseId,
+        pathAfterDocuments,
+      );
+
+      const pageSize = request.pageSize || 0;
+      const pageToken = request.pageToken || '';
+      let resultIds = collectionIds;
+      let nextPageToken = '';
+
+      if (pageSize > 0) {
+        const start = pageToken ? parseInt(pageToken, 10) || 0 : 0;
+        const end = start + pageSize;
+        resultIds = collectionIds.slice(start, end);
+        if (end < collectionIds.length) {
+          nextPageToken = String(end);
+        }
+      }
+
+      this.logger.log(
+        'grpc',
+        `[ListCollectionIds] returning ${resultIds.length} ids: ${resultIds.join(', ')}`,
+      );
+
+      callback(null, {
+        collectionIds: resultIds,
+        nextPageToken,
+      });
+    } catch (err) {
+      this.logger.log(
+        'grpc',
+        `[ListCollectionIds] error: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      callback(
+        {
+          code: grpc.status.INTERNAL,
+          message: err instanceof Error ? err.message : String(err),
+        },
+        null,
+      );
+    }
+  }
+
+  /**
    * Stub for BatchWrite (and other unary RPCs not implemented). Emits a
    * visible warning (or throws if logs.onUnimplemented === 'throw'), then
    * responds with UNIMPLEMENTED so the client does not hang.
@@ -2701,7 +2788,7 @@ export class FirestoreServer {
             Rollback: (call: grpc.ServerUnaryCall<any, any>, cb: grpc.sendUnaryData<any>) =>
               this.handleUnimplementedUnary(call, cb, 'Rollback'),
             ListCollectionIds: (call: grpc.ServerUnaryCall<any, any>, cb: grpc.sendUnaryData<any>) =>
-              this.handleUnimplementedUnary(call, cb, 'ListCollectionIds'),
+              this.handleListCollectionIds(call, cb),
           };
 
           // Load proto: prefer local copy (proto/v1.json) so we always use the same

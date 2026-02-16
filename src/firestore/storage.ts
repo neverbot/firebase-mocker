@@ -132,6 +132,33 @@ export class Storage {
   }
 
   /**
+   * List collection IDs under a parent path.
+   * @param projectId Project ID
+   * @param databaseId Database ID (e.g. '(default)')
+   * @param parentPath Path after /documents/ (e.g. '' for root, 'events/eventId' for subcollections)
+   * @returns Array of collection ID strings (e.g. ['users', 'agenda'] for subcollections)
+   */
+  listCollectionIds(
+    projectId: string,
+    databaseId: string,
+    parentPath: string,
+  ): string[] {
+    const database = this.getDatabase(projectId, databaseId);
+    const keys = Object.keys(database);
+    const prefix = parentPath ? `${parentPath}/` : '';
+    const collectionIds = new Set<string>();
+    for (const key of keys) {
+      if (!key.startsWith(prefix)) continue;
+      const suffix = key.slice(prefix.length);
+      const nextSlash = suffix.indexOf('/');
+      if (nextSlash === -1) {
+        if (suffix.length > 0) collectionIds.add(suffix);
+      }
+    }
+    return Array.from(collectionIds).sort();
+  }
+
+  /**
    * Clear all data (useful for testing)
    */
   clear(): void {

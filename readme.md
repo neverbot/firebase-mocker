@@ -209,10 +209,10 @@ The Firestore emulator implements these gRPC methods:
 | `BatchGetDocuments` | Yes | Batched reads, e.g. `doc(id).get()` |
 | `Listen` | Yes | Real-time listeners (streaming) |
 | `Write` | Yes | Write stream (used by client SDK) |
+| `ListCollectionIds` | Yes | List subcollection IDs under a document (`doc.ref.listCollections()`) |
 | `BatchWrite` | No | Returns UNIMPLEMENTED; see `onUnimplemented` in Configuration |
 | `BeginTransaction` | No | Returns UNIMPLEMENTED |
 | `Rollback` | No | Returns UNIMPLEMENTED |
-| `ListCollectionIds` | No | Returns UNIMPLEMENTED |
 
 When an unsupported RPC is called, the emulator logs a clear warning to stderr (or throws if `logs.onUnimplemented` is `'throw'`). See **Configuration** for `onUnimplemented`.
 
