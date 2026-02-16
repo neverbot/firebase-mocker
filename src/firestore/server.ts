@@ -2257,9 +2257,18 @@ export class FirestoreServer {
           // For updates, merge with existing fields
           let finalFields = fields;
           if (existingDoc && write.updateMask) {
-            // If updateMask is present, merge with existing fields
+            // updateMask: only these fields are updated. Fields in mask but not in document are deleted (Firestore semantics).
+            const mask = write.updateMask;
+            const fieldPaths: string[] =
+              mask.field_paths ?? mask.fieldPaths ?? [];
             const existingFields = existingDoc.fields || {};
             finalFields = { ...existingFields, ...fields };
+            for (const path of fieldPaths) {
+              if (!(path in fields)) {
+                // Field is in mask but not in incoming document → delete it
+                delete finalFields[path];
+              }
+            }
           } else if (existingDoc && !write.updateMask) {
             // If no updateMask, merge with existing fields (update operation)
             const existingFields = existingDoc.fields || {};
