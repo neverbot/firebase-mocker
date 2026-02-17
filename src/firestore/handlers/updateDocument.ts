@@ -3,9 +3,9 @@
  */
 
 import * as grpc from '@grpc/grpc-js';
+import type { FirestoreValue } from '../../types';
 import type { FirestoreServer } from '../server';
 import {
-  toFirestoreDocument,
   toTimestamp,
   toGrpcFields,
   normalizeGrpcValueToFirestoreValue,
@@ -45,19 +45,17 @@ export function handleUpdateDocument(
       );
 
     const rawFields = request.document?.fields || {};
-    const normalizedFields: Record<string, any> = {};
+    const fields: Record<string, FirestoreValue> = {};
     Object.keys(rawFields).forEach((key) => {
-      normalizedFields[key] = normalizeGrpcValueToFirestoreValue(
-        rawFields[key],
-      );
+      fields[key] = normalizeGrpcValueToFirestoreValue(rawFields[key]);
     });
-    const document = toFirestoreDocument(path, normalizedFields);
-    document.name = path;
-
-    if (existingDoc) {
-      document.createTime = existingDoc.createTime;
-    }
-    document.updateTime = new Date().toISOString();
+    const nowStr = new Date().toISOString();
+    const document = {
+      name: path,
+      fields,
+      createTime: existingDoc?.createTime ?? nowStr,
+      updateTime: nowStr,
+    };
 
     server
       .getStorage()
