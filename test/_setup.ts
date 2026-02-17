@@ -4,12 +4,14 @@
  */
 
 import * as admin from 'firebase-admin';
+import { AuthServer } from '../src/firebase-auth';
 import { FirestoreServer } from '../src/firestore';
 import { firebaseMocker } from '../src/index';
 
-// Initialize Firebase Admin SDK (will use emulator if FIRESTORE_EMULATOR_HOST is set)
+// Initialize Firebase Admin SDK (will use emulators if FIRESTORE_EMULATOR_HOST / FIREBASE_AUTH_EMULATOR_HOST are set)
 let firebaseApp: admin.app.App | undefined = undefined;
 let firestoreServer: FirestoreServer | null = null;
+let authServer: AuthServer | null = null;
 let isInitialized = false;
 let isTearingDown = false;
 
@@ -23,26 +25,30 @@ export async function setup(): Promise<void> {
     return;
   }
 
-  // Start the Firestore mock server (HTTP REST)
-  // This will automatically set FIRESTORE_EMULATOR_HOST
+  // Start the Firestore mock server (gRPC)
   firestoreServer = await firebaseMocker.startFirestoreServer({
     port: 3333,
     host: 'localhost',
     projectId: 'test-project',
   });
 
-  // Initialize Firebase Admin SDK
-  // IMPORTANT: FIRESTORE_EMULATOR_HOST must be set BEFORE initializing the app
-  // Firebase Admin SDK checks this variable at initialization time
-  const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST || 'localhost:3333';
+  // Start the Firebase Auth emulator (HTTP)
+  authServer = await firebaseMocker.startAuthServer({
+    port: 9099,
+    host: 'localhost',
+    projectId: 'test-project',
+  });
 
-  // Verify the environment variable is set
+  // IMPORTANT: Emulator env vars must be set BEFORE initializing the app
   if (!process.env.FIRESTORE_EMULATOR_HOST) {
-    process.env.FIRESTORE_EMULATOR_HOST = emulatorHost;
+    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:3333';
+  }
+  if (!process.env.FIREBASE_AUTH_EMULATOR_HOST) {
+    process.env.FIREBASE_AUTH_EMULATOR_HOST = 'localhost:9099';
   }
 
   // Initialize Firebase Admin with explicit project ID
-  // Note: We don't need credentials when using emulator
+  // Note: We don't need credentials when using emulators
   firebaseApp = admin.initializeApp(
     {
       projectId: 'test-project',
@@ -80,6 +86,12 @@ export async function teardown(): Promise<void> {
 
   isTearingDown = true;
 
+  if (authServer) {
+    await firebaseMocker.stopAuthServer();
+    authServer = null;
+    console.log('[SERVER] Auth server stopped');
+  }
+
   if (firestoreServer) {
     await firestoreServer.stop();
     firestoreServer = null;
@@ -92,7 +104,7 @@ export async function teardown(): Promise<void> {
     console.log('[SERVER] Firebase admin app deleted');
   }
 
-  // Clean up environment variable
+  delete process.env.FIREBASE_AUTH_EMULATOR_HOST;
   delete process.env.FIRESTORE_EMULATOR_HOST;
 
   isInitialized = false;
@@ -126,6 +138,33 @@ export function getFirestoreServer(): FirestoreServer {
 export function getFirestoreStorage() {
   const server = getFirestoreServer();
   return server.getStorage();
+}
+
+/**
+ * Get the Firebase Admin app instance (the initialized firebase-admin app)
+ */
+export function getAdminApp(): admin.app.App {
+  if (!firebaseApp) {
+    throw new Error('Firebase app not initialized. Call setup() first.');
+  }
+  return firebaseApp;
+}
+
+/**
+ * Get the Auth emulator server instance
+ */
+export function getAuthServer(): AuthServer {
+  if (!authServer) {
+    throw new Error('Auth server not initialized. Call setup() first.');
+  }
+  return authServer;
+}
+
+/**
+ * Get the Auth emulator storage instance (for direct access to internal storage)
+ */
+export function getAuthStorage() {
+  return getAuthServer().getStorage();
 }
 
 /**
