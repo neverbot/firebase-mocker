@@ -4,7 +4,7 @@
 
 import { config, FirestoreConfig, FirebaseAuthConfig } from './config';
 import { AuthServer } from './firebase-auth';
-import { FirestoreServer } from './firestore/server';
+import { FirestoreServer } from './firestore';
 
 let authServer: AuthServer | null = null;
 let firestoreServer: FirestoreServer | null = null;
