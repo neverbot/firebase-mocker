@@ -459,4 +459,64 @@ describe('Firestore Basic Services', () => {
       expect(snap3.exists).to.be.false;
     });
   });
+
+  describe('Query options (orderBy, limit)', () => {
+    it('should return documents sorted by orderBy', async function () {
+      const collectionName = 'query-order';
+      const col = db.collection(collectionName);
+      await col.doc('a').set({ name: 'Alice', score: 10 });
+      await col.doc('b').set({ name: 'Bob', score: 30 });
+      await col.doc('c').set({ name: 'Carol', score: 20 });
+
+      const snapshot = await col.orderBy('score', 'asc').get();
+      expect(snapshot.size).to.equal(3);
+      expect(snapshot.docs[0].data()?.score).to.equal(10);
+      expect(snapshot.docs[1].data()?.score).to.equal(20);
+      expect(snapshot.docs[2].data()?.score).to.equal(30);
+    });
+
+    it('should return at most limit documents', async function () {
+      const collectionName = 'query-limit';
+      const col = db.collection(collectionName);
+      await col.doc('1').set({ n: 1 });
+      await col.doc('2').set({ n: 2 });
+      await col.doc('3').set({ n: 3 });
+
+      const snapshot = await col.limit(2).get();
+      expect(snapshot.size).to.equal(2);
+    });
+
+    it('should apply orderBy and limit together', async function () {
+      const collectionName = 'query-order-limit';
+      const col = db.collection(collectionName);
+      await col.doc('a').set({ x: 3 });
+      await col.doc('b').set({ x: 1 });
+      await col.doc('c').set({ x: 2 });
+
+      const snapshot = await col.orderBy('x', 'asc').limit(2).get();
+      expect(snapshot.size).to.equal(2);
+      const values = snapshot.docs
+        .map((d) => d.data()?.x)
+        .sort((a, b) => (a as number) - (b as number));
+      expect(values).to.deep.equal([1, 2]);
+    });
+  });
+
+  describe('Storage (internal)', () => {
+    it('debugLog does not throw and logs existing data', async function () {
+      const storage = getFirestoreStorage();
+      const collectionName = 'storage-debug-coll';
+      const docId = 'debug-doc';
+      const docRef = db.collection(collectionName).doc(docId);
+      await docRef.set({
+        name: 'Test',
+        count: 42,
+        active: true,
+        tags: ['a', 'b'],
+        meta: { nested: true },
+      });
+
+      expect(() => storage.debugLog()).to.not.throw();
+    });
+  });
 });

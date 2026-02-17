@@ -31,10 +31,6 @@ export async function setup(): Promise<void> {
     projectId: 'test-project',
   });
 
-  // The gRPC server is already started by firestoreServer on port 3333
-  // So we don't need an additional gRPC server here
-  // The main server should be detecting connections
-
   // Initialize Firebase Admin SDK
   // IMPORTANT: FIRESTORE_EMULATOR_HOST must be set BEFORE initializing the app
   // Firebase Admin SDK checks this variable at initialization time
