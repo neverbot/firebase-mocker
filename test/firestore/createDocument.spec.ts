@@ -18,7 +18,7 @@ function createDocumentParent(
   return pathAfterDocuments ? `${base}/${pathAfterDocuments}` : base;
 }
 
-describe('Firestore handler: CreateDocument (unit)', () => {
+describe('Firestore CreateDocument (unit)', () => {
   const projectId = 'test-project';
   const databaseId = '(default)';
 

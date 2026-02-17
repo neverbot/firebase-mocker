@@ -9,7 +9,7 @@ import { handleUpdateDocument } from '../../src/firestore/handlers/updateDocumen
 import { buildDocumentPath } from '../../src/firestore/utils';
 import { getFirestoreServer } from '../_setup';
 
-describe('Firestore handler: UpdateDocument (unit)', () => {
+describe('Firestore UpdateDocument (unit)', () => {
   const projectId = 'test-project';
   const databaseId = '(default)';
 
