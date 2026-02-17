@@ -4,8 +4,8 @@
 
 import * as grpc from '@grpc/grpc-js';
 import { FirestoreDocument, FirestoreValue, FieldType } from '../../types';
-import { normalizeGrpcValueToFirestoreValue } from '../utils';
 import type { FirestoreServer } from '../server';
+import { normalizeGrpcValueToFirestoreValue } from '../utils';
 
 export function handleCommitWithProtobufjs(
   server: FirestoreServer,

@@ -4,6 +4,7 @@
 
 import * as grpc from '@grpc/grpc-js';
 import { FirestoreValue } from '../../types';
+import type { FirestoreServer } from '../server';
 import {
   buildDocumentPath,
   generateDocumentId,
@@ -12,7 +13,6 @@ import {
   toGrpcFields,
   normalizeGrpcValueToFirestoreValue,
 } from '../utils';
-import type { FirestoreServer } from '../server';
 
 export function handleCreateDocument(
   server: FirestoreServer,

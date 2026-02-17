@@ -4,12 +4,12 @@
  */
 
 import * as grpc from '@grpc/grpc-js';
+import type { FirestoreServer } from '../server';
 import {
   toTimestamp,
   sanitizeGrpcFieldsForResponse,
   toGrpcFields,
 } from '../utils';
-import type { FirestoreServer } from '../server';
 
 export function handleBatchGetDocuments(
   server: FirestoreServer,

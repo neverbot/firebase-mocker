@@ -3,8 +3,8 @@
  */
 
 import * as grpc from '@grpc/grpc-js';
-import { buildDocumentPath } from '../utils';
 import type { FirestoreServer } from '../server';
+import { buildDocumentPath } from '../utils';
 
 export function handleListDocuments(
   server: FirestoreServer,

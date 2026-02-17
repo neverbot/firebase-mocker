@@ -3,8 +3,8 @@
  */
 
 import * as grpc from '@grpc/grpc-js';
-import { toTimestamp, toGrpcFields } from '../utils';
 import type { FirestoreServer } from '../server';
+import { toTimestamp, toGrpcFields } from '../utils';
 
 export function handleGetDocument(
   server: FirestoreServer,

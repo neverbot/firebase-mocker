@@ -3,13 +3,13 @@
  */
 
 import * as grpc from '@grpc/grpc-js';
+import type { FirestoreServer } from '../server';
 import {
   toFirestoreDocument,
   toTimestamp,
   toGrpcFields,
   normalizeGrpcValueToFirestoreValue,
 } from '../utils';
-import type { FirestoreServer } from '../server';
 
 export function handleUpdateDocument(
   server: FirestoreServer,
