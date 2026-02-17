@@ -8,7 +8,6 @@ import type { FirestoreServer } from '../server';
 import {
   buildDocumentPath,
   generateDocumentId,
-  toFirestoreDocument,
   toTimestamp,
   toGrpcFields,
   normalizeGrpcValueToFirestoreValue,
@@ -74,8 +73,13 @@ export function handleCreateDocument(
     Object.keys(rawFields).forEach((key) => {
       fields[key] = normalizeGrpcValueToFirestoreValue(rawFields[key]);
     });
-    const document = toFirestoreDocument(documentPath, fields);
-    document.name = documentPath;
+    const nowStr = new Date().toISOString();
+    const document = {
+      name: documentPath,
+      fields,
+      createTime: nowStr,
+      updateTime: nowStr,
+    };
 
     server
       .getStorage()
