@@ -5,7 +5,12 @@
 
 import * as grpc from '@grpc/grpc-js';
 import { config } from '../config';
-import { FirestoreDocument, FirestoreValue, FieldType } from '../types';
+import {
+  FirestoreDocument,
+  FirestoreValue,
+  FieldType,
+  FIELD_TYPE_KEYS,
+} from '../types';
 
 /**
  * Firestore logger type
@@ -23,23 +28,6 @@ export type FirestoreLogger =
 
 /** gRPC NullValue = 0; protobufjs skips null when encoding. */
 export const GRPC_NULL_VALUE = 0;
-
-/**
- * Value type keys
- */
-const VALUE_TYPE_KEYS = [
-  'nullValue',
-  'booleanValue',
-  'integerValue',
-  'doubleValue',
-  'timestampValue',
-  'stringValue',
-  'bytesValue',
-  'referenceValue',
-  'geoPointValue',
-  'arrayValue',
-  'mapValue',
-];
 
 /**
  * Convert a date to a timestamp
@@ -322,7 +310,7 @@ export function toGrpcValue(firestoreValue: FirestoreValue): any {
     return { nullValue: GRPC_NULL_VALUE };
   }
   const hasExactlyOne =
-    VALUE_TYPE_KEYS.filter((k) => k in firestoreValue).length === 1;
+    FIELD_TYPE_KEYS.filter((k) => k in firestoreValue).length === 1;
   if (!hasExactlyOne) {
     return { nullValue: GRPC_NULL_VALUE };
   }
@@ -397,7 +385,7 @@ export function sanitizeGrpcValueForResponse(value: any): any {
   if (typeof value !== 'object') {
     return value;
   }
-  const valueKeyCount = VALUE_TYPE_KEYS.filter((k) => k in value).length;
+  const valueKeyCount = FIELD_TYPE_KEYS.filter((k) => k in value).length;
   if (valueKeyCount === 0) {
     return { nullValue: GRPC_NULL_VALUE };
   }

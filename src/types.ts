@@ -2,18 +2,22 @@
  * Type definitions for Firestore document structure
  */
 
-export type FieldType =
-  | 'nullValue'
-  | 'booleanValue'
-  | 'integerValue'
-  | 'doubleValue'
-  | 'timestampValue'
-  | 'stringValue'
-  | 'bytesValue'
-  | 'referenceValue'
-  | 'geoPointValue'
-  | 'arrayValue'
-  | 'mapValue';
+/** All Firestore value type keys (single source of truth for runtime checks). */
+export const FIELD_TYPE_KEYS = [
+  'nullValue',
+  'booleanValue',
+  'integerValue',
+  'doubleValue',
+  'timestampValue',
+  'stringValue',
+  'bytesValue',
+  'referenceValue',
+  'geoPointValue',
+  'arrayValue',
+  'mapValue',
+] as const;
+
+export type FieldType = (typeof FIELD_TYPE_KEYS)[number];
 
 export interface FirestoreDocument {
   name: string; // Full document path
