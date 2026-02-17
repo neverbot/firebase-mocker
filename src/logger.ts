@@ -21,7 +21,7 @@ export type LogType =
 /**
  * Logger class that wraps Winston
  */
-class Logger {
+export class Logger {
   private readonly logger: winston.Logger;
 
   constructor() {
