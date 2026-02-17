@@ -23,8 +23,10 @@ describe('Firestore GetDocument (unit)', () => {
         try {
           expect(err).to.exist;
           expect(err?.code).to.equal(grpc.status.INVALID_ARGUMENT);
-          expect(err?.message).to.include('Invalid document path');
-          expect(value == null).to.be.true;
+          expect((err as { message?: string })?.message).to.include(
+            'Invalid document path',
+          );
+          expect(value === null || value === undefined).to.be.true;
           done();
         } catch (e) {
           done(e as Error);
@@ -48,8 +50,10 @@ describe('Firestore GetDocument (unit)', () => {
         try {
           expect(err).to.exist;
           expect(err?.code).to.equal(grpc.status.NOT_FOUND);
-          expect(err?.message).to.include('Document not found');
-          expect(value == null).to.be.true;
+          expect((err as { message?: string })?.message).to.include(
+            'Document not found',
+          );
+          expect(value === null || value === undefined).to.be.true;
           done();
         } catch (e) {
           done(e as Error);
@@ -95,7 +99,7 @@ describe('Firestore GetDocument (unit)', () => {
             expect(value?.updateTime).to.exist;
             resolve();
           } catch (e) {
-            reject(e);
+            reject(e as Error);
           }
         };
         handleGetDocument(server, call, callback);
@@ -131,7 +135,7 @@ describe('Firestore GetDocument (unit)', () => {
             expect(value?.updateTime).to.exist;
             resolve();
           } catch (e) {
-            reject(e);
+            reject(e as Error);
           }
         };
         handleGetDocument(server, call, callback);
