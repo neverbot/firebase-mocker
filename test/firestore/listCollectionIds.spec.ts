@@ -18,7 +18,7 @@ function listCollectionIdsParent(
   return pathAfterDocuments ? `${base}/${pathAfterDocuments}` : base;
 }
 
-describe('Firestore handler: ListCollectionIds (unit)', () => {
+describe('Firestore ListCollectionIds (unit)', () => {
   const projectId = 'test-project';
   const databaseId = '(default)';
 
