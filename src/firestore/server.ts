@@ -23,10 +23,10 @@ import {
   sanitizeGrpcFieldsForResponse,
   normalizeGrpcValueToFirestoreValue,
 } from '../utils';
-import { Storage } from './storage';
+import { FirestoreStorage } from './storage';
 
 export class FirestoreServer {
-  private readonly storage: Storage;
+  private readonly storage: FirestoreStorage;
   private readonly config: ServerConfig;
   private grpcServer?: grpc.Server;
   private readonly logger = getLogger();
@@ -39,7 +39,7 @@ export class FirestoreServer {
 
   constructor(config: ServerConfig) {
     this.config = config;
-    this.storage = new Storage();
+    this.storage = new FirestoreStorage();
   }
 
   /**
@@ -3058,29 +3058,35 @@ export class FirestoreServer {
             __dirname,
             '../../node_modules/@google-cloud/firestore/build/protos/google/firestore/v1/firestore.proto',
           );
+
           const localProtoPath = path.join(
             __dirname,
             '../proto/firestore.proto',
           );
+
           const protoPath = require('fs').existsSync(officialProtoPath)
             ? officialProtoPath
             : localProtoPath;
 
           // 1) Prefer local proto/v1.json (bundled copy, single standard = camelCase)
           const localJsonPath = path.join(__dirname, '../proto/v1.json');
+
           try {
             if (fs.existsSync(localJsonPath)) {
               this.logger.log(
                 'server',
                 'Loading proto from local proto/v1.json',
               );
+
               const jsonProto = JSON.parse(
                 fs.readFileSync(localJsonPath, 'utf8'),
               );
+
               this.protobufRoot = protobuf.Root.fromJSON(jsonProto);
             } else {
               // 2) Fallback: try @google-cloud/firestore protos (when not bundled)
               let jsonProtoPath: string | null = null;
+
               try {
                 jsonProtoPath =
                   require.resolve('@google-cloud/firestore/build/protos/v1.json');
@@ -3090,26 +3096,28 @@ export class FirestoreServer {
                   '../../node_modules/@google-cloud/firestore/build/protos/v1.json',
                 );
               }
+
               if (fs.existsSync(jsonProtoPath)) {
-                this.logger.log(
-                  'server',
-                  'Loading proto from JSON (same method as firebase-admin)',
-                );
+                this.logger.log('server', 'Loading proto from JSON');
+
                 const jsonProto = JSON.parse(
                   fs.readFileSync(jsonProtoPath, 'utf8'),
                 );
+
                 this.protobufRoot = protobuf.Root.fromJSON(jsonProto);
               } else if (protoPath === officialProtoPath) {
                 this.logger.log(
                   'server',
                   'Loading proto from .proto file (fallback)',
                 );
+
                 this.protobufRoot = await protobuf.load(protoPath);
               } else {
                 this.logger.log(
                   'server',
                   'Loading proto from local .proto file (fallback)',
                 );
+
                 const protoContent = fs.readFileSync(protoPath, 'utf8');
                 this.protobufRoot = protobuf.parse(protoContent, {
                   keepCase: true,
@@ -3236,7 +3244,7 @@ export class FirestoreServer {
     });
   }
 
-  public getStorage(): Storage {
+  public getStorage(): FirestoreStorage {
     return this.storage;
   }
 
@@ -3248,14 +3256,7 @@ export class FirestoreServer {
    * Debug method to log all content in storage
    * Useful for debugging from external projects
    */
-  public debugLogStorage(): void {
-    this.storage.debugLog();
-  }
-
-  /**
-   * Alias for debugLogStorage() for consistency with Auth server API
-   */
   public debugLog(): void {
-    this.debugLogStorage();
+    this.storage.debugLog();
   }
 }

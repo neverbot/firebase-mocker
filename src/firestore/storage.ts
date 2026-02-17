@@ -11,7 +11,7 @@ import {
   FirestoreValue,
 } from '../types';
 
-export class Storage {
+export class FirestoreStorage {
   private readonly projects = new Map<string, FirestoreProject>();
   private readonly logger = getLogger();
 

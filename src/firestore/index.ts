@@ -4,4 +4,4 @@
  */
 
 export { FirestoreServer } from './server';
-export { Storage } from './storage';
+export { FirestoreStorage } from './storage';

@@ -59,7 +59,7 @@ export async function setup(): Promise<void> {
   const firestore = admin.firestore(firebaseApp);
 
   // Log the configuration to debug
-  console.log(`[SETUP] Firestore instance created`);
+  console.log(`[SETUP] Firestore admin instance created`);
 
   // Force client creation by creating a collection reference
   // The client is created lazily, so we need to trigger it
@@ -87,13 +87,13 @@ export async function teardown(): Promise<void> {
   if (firestoreServer) {
     await firestoreServer.stop();
     firestoreServer = null;
-    console.log('[TEARDOWN] Firestore server stopped');
+    console.log('[SERVER] Firestore server stopped');
   }
 
   if (firebaseApp !== undefined) {
     await firebaseApp.delete();
     firebaseApp = undefined;
-    console.log('[TEARDOWN] Firebase app deleted');
+    console.log('[SERVER] Firebase admin app deleted');
   }
 
   // Clean up environment variable
@@ -101,7 +101,7 @@ export async function teardown(): Promise<void> {
 
   isInitialized = false;
   isTearingDown = false;
-  console.log('Firebase mocker teardown complete');
+  console.log('[SERVER] Firebase mocker teardown complete');
 }
 
 /**
