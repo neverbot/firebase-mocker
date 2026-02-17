@@ -5,7 +5,7 @@
 
 import { expect } from 'chai';
 import * as admin from 'firebase-admin';
-import { fromFirestoreDocument } from '../src/utils';
+import { fromFirestoreDocument } from '../src/firestore/utils';
 import { getFirestore, getFirestoreStorage } from './_setup';
 
 describe('Firestore Basic Services', () => {

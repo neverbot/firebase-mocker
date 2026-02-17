@@ -11,7 +11,7 @@ import {
   toTimestamp,
   toGrpcFields,
   normalizeGrpcValueToFirestoreValue,
-} from '../../utils';
+} from '../utils';
 import type { FirestoreServer } from '../server';
 
 export function handleCreateDocument(

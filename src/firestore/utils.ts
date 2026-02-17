@@ -6,13 +6,481 @@
 import * as grpc from '@grpc/grpc-js';
 import { config } from '../config';
 import { FirestoreDocument, FirestoreValue, FieldType } from '../types';
-import { normalizeGrpcValueToFirestoreValue } from '../utils';
 
+/**
+ * Firestore logger type
+ * @param category - The category of the log
+ * @param message - The message to log
+ * @returns The log
+ * @example
+ * log('firestore', 'my-message') // logs 'my-message'
+ */
 export type FirestoreLogger =
   | {
       log(category: string, message: string): void;
     }
   | undefined;
+
+/** gRPC NullValue = 0; protobufjs skips null when encoding. */
+export const GRPC_NULL_VALUE = 0;
+
+/**
+ * Value type keys
+ */
+const VALUE_TYPE_KEYS = [
+  'nullValue',
+  'booleanValue',
+  'integerValue',
+  'doubleValue',
+  'timestampValue',
+  'stringValue',
+  'bytesValue',
+  'referenceValue',
+  'geoPointValue',
+  'arrayValue',
+  'mapValue',
+];
+
+/**
+ * Convert a date to a timestamp
+ * @param date - The date to convert
+ * @returns The timestamp
+ * @example
+ * toTimestamp(new Date()) // returns { seconds: 1609459200, nanos: 0 }
+ */
+export function toTimestamp(date: Date): { seconds: number; nanos: number } {
+  const ms = date.getTime();
+  return {
+    seconds: Math.floor(ms / 1000),
+    nanos: (ms % 1000) * 1000000,
+  };
+}
+
+/**
+ * Convert a value to a Firestore value
+ * @param value - The value to convert
+ * @returns The Firestore value
+ * @example
+ * toFirestoreValue('hello') // returns { stringValue: 'hello' }
+ */
+export function toFirestoreValue(value: any): FirestoreValue {
+  if (value === null || value === undefined) {
+    return { nullValue: null };
+  }
+  if (typeof value === 'boolean') {
+    return { booleanValue: value };
+  }
+  if (typeof value === 'number') {
+    if (Number.isInteger(value)) {
+      return { integerValue: value.toString() };
+    }
+    return { doubleValue: value };
+  }
+  if (typeof value === 'string') {
+    return { stringValue: value };
+  }
+  if (value instanceof Date) {
+    return { timestampValue: value.toISOString() };
+  }
+  if (Array.isArray(value)) {
+    return {
+      arrayValue: {
+        values: value.map(toFirestoreValue),
+      },
+    };
+  }
+  if (typeof value === 'object') {
+    return {
+      mapValue: {
+        fields: Object.keys(value).reduce(
+          (acc, key) => {
+            acc[key] = toFirestoreValue(value[key]);
+            return acc;
+          },
+          {} as Record<string, FirestoreValue>,
+        ),
+      },
+    };
+  }
+  return { nullValue: null };
+}
+
+/**
+ * Convert a Firestore value to a value
+ * @param firestoreValue - The Firestore value to convert
+ * @returns The value
+ * @example
+ * fromFirestoreValue({ stringValue: 'hello' }) // returns 'hello'
+ */
+export function fromFirestoreValue(firestoreValue: FirestoreValue): any {
+  if (!firestoreValue || typeof firestoreValue !== 'object') {
+    return null;
+  }
+  if ('nullValue' in firestoreValue) {
+    return null;
+  }
+  if ('booleanValue' in firestoreValue) {
+    return firestoreValue.booleanValue;
+  }
+  if ('integerValue' in firestoreValue) {
+    return parseInt(firestoreValue.integerValue!, 10);
+  }
+  if ('doubleValue' in firestoreValue) {
+    return firestoreValue.doubleValue;
+  }
+  if ('stringValue' in firestoreValue) {
+    return firestoreValue.stringValue;
+  }
+  if ('timestampValue' in firestoreValue) {
+    return new Date(firestoreValue.timestampValue!);
+  }
+  if ('arrayValue' in firestoreValue) {
+    return firestoreValue.arrayValue!.values.map(fromFirestoreValue);
+  }
+  if ('mapValue' in firestoreValue) {
+    const result: Record<string, any> = {};
+    Object.keys(firestoreValue.mapValue!.fields).forEach((key) => {
+      result[key] = fromFirestoreValue(firestoreValue.mapValue!.fields[key]);
+    });
+    return result;
+  }
+  return null;
+}
+
+/**
+ * Convert a document to a Firestore document
+ * @param name - The name of the document
+ * @param data - The data of the document
+ * @returns The Firestore document
+ * @example
+ * toFirestoreDocument('projects/my-project/databases/my-database/documents/my-collection/my-document', { name: 'John Doe' }) // returns { name: 'John Doe' }
+ */
+export function toFirestoreDocument(
+  name: string,
+  data: Record<string, any>,
+): FirestoreDocument {
+  const fields: Record<string, FirestoreValue> = {};
+  Object.keys(data).forEach((key) => {
+    fields[key] = toFirestoreValue(data[key]);
+  });
+  const now = new Date().toISOString();
+  return {
+    name,
+    fields,
+    createTime: now,
+    updateTime: now,
+  };
+}
+
+/**
+ * Convert a Firestore document to a document
+ * @param document - The Firestore document to convert
+ * @returns The document
+ * @example
+ * fromFirestoreDocument({ name: 'projects/my-project/databases/my-database/documents/my-collection/my-document', fields: { name: { stringValue: 'John Doe' } } }) // returns { name: 'John Doe' }
+ */
+export function fromFirestoreDocument(
+  document: FirestoreDocument,
+): Record<string, any> {
+  const result: Record<string, any> = {};
+  Object.keys(document.fields).forEach((key) => {
+    result[key] = fromFirestoreValue(document.fields[key]);
+  });
+  return result;
+}
+
+/**
+ * Generate a document ID
+ * @returns The document ID
+ * @example
+ * generateDocumentId() // returns '1234567890'
+ */
+export function generateDocumentId(): string {
+  return (
+    Math.random().toString(36).substring(2, 15) +
+    Math.random().toString(36).substring(2, 15)
+  );
+}
+
+/**
+ * Maximum normalize depth
+ */
+const MAX_NORMALIZE_DEPTH = 50;
+
+/**
+ * Normalize a gRPC value to a Firestore value
+ * @param value - The gRPC value to normalize
+ * @param options - The options to use for normalization
+ * @returns The normalized Firestore value
+ * @example
+ * normalizeGrpcValueToFirestoreValue({ stringValue: 'hello' }) // returns { stringValue: 'hello' }
+ */
+export function normalizeGrpcValueToFirestoreValue(
+  value: any,
+  options?: { visited?: WeakSet<object>; depth?: number },
+): FirestoreValue {
+  const visited = options?.visited ?? new WeakSet<object>();
+  const depth = options?.depth ?? 0;
+
+  if (depth > MAX_NORMALIZE_DEPTH) {
+    return { nullValue: null };
+  }
+  if (!value || typeof value !== 'object') {
+    return { nullValue: null };
+  }
+  if (visited.has(value)) {
+    return { nullValue: null };
+  }
+  visited.add(value);
+
+  const nextOpts = { visited, depth: depth + 1 };
+
+  if ('null_value' in value || 'nullValue' in value) {
+    return { nullValue: null };
+  }
+  if ('boolean_value' in value || 'booleanValue' in value) {
+    return { booleanValue: value.boolean_value || value.booleanValue };
+  }
+  if ('integer_value' in value || 'integerValue' in value) {
+    return { integerValue: value.integer_value || value.integerValue };
+  }
+  if ('double_value' in value || 'doubleValue' in value) {
+    return { doubleValue: value.double_value || value.doubleValue };
+  }
+  if ('string_value' in value || 'stringValue' in value) {
+    return { stringValue: value.string_value || value.stringValue };
+  }
+
+  const isTimestamp =
+    'timestamp_value' in value ||
+    'timestampValue' in value ||
+    value?.valueType === 'timestampValue' ||
+    value?.value_type === 'timestampValue';
+  if (isTimestamp) {
+    const raw = value.timestamp_value ?? value.timestampValue;
+    let iso: string;
+    if (typeof raw === 'string') {
+      iso = raw;
+    } else if (raw && typeof raw === 'object' && 'seconds' in raw) {
+      const sec = Number(raw.seconds) || 0;
+      const nan = Number(raw.nanos) || 0;
+      iso = new Date(sec * 1000 + nan / 1000000).toISOString();
+    } else {
+      iso = new Date().toISOString();
+    }
+    return { timestampValue: iso };
+  }
+
+  if ('bytes_value' in value || 'bytesValue' in value) {
+    return { bytesValue: value.bytes_value || value.bytesValue };
+  }
+  if ('reference_value' in value || 'referenceValue' in value) {
+    return { referenceValue: value.reference_value || value.referenceValue };
+  }
+  if ('geo_point_value' in value || 'geoPointValue' in value) {
+    return { geoPointValue: value.geo_point_value || value.geoPointValue };
+  }
+  if ('array_value' in value || 'arrayValue' in value) {
+    const arrayVal = value.array_value || value.arrayValue;
+    if (arrayVal && arrayVal.values) {
+      return {
+        arrayValue: {
+          values: arrayVal.values.map((v: any) =>
+            normalizeGrpcValueToFirestoreValue(v, nextOpts),
+          ),
+        },
+      };
+    }
+    return { arrayValue: { values: [] } };
+  }
+  if ('map_value' in value || 'mapValue' in value) {
+    const mapVal = value.map_value || value.mapValue;
+    if (mapVal && mapVal.fields) {
+      const normalizedFields: Record<string, FirestoreValue> = {};
+      Object.keys(mapVal.fields).forEach((key) => {
+        normalizedFields[key] = normalizeGrpcValueToFirestoreValue(
+          mapVal.fields[key],
+          nextOpts,
+        );
+      });
+      return { mapValue: { fields: normalizedFields } };
+    }
+    return { mapValue: { fields: {} } };
+  }
+  return { nullValue: null };
+}
+
+/**
+ * Convert a Firestore value to a gRPC value
+ * @param firestoreValue - The Firestore value to convert
+ * @returns The gRPC value
+ * @example
+ * toGrpcValue({ stringValue: 'hello' }) // returns { stringValue: 'hello' }
+ */
+export function toGrpcValue(firestoreValue: FirestoreValue): any {
+  if (!firestoreValue || typeof firestoreValue !== 'object') {
+    return { nullValue: GRPC_NULL_VALUE };
+  }
+  const hasExactlyOne =
+    VALUE_TYPE_KEYS.filter((k) => k in firestoreValue).length === 1;
+  if (!hasExactlyOne) {
+    return { nullValue: GRPC_NULL_VALUE };
+  }
+  if ('nullValue' in firestoreValue) {
+    return { nullValue: GRPC_NULL_VALUE };
+  }
+  if ('booleanValue' in firestoreValue) {
+    return { booleanValue: firestoreValue.booleanValue };
+  }
+  if ('integerValue' in firestoreValue) {
+    return { integerValue: firestoreValue.integerValue };
+  }
+  if ('doubleValue' in firestoreValue) {
+    return { doubleValue: firestoreValue.doubleValue };
+  }
+  if ('stringValue' in firestoreValue) {
+    return { stringValue: firestoreValue.stringValue };
+  }
+  if ('timestampValue' in firestoreValue) {
+    const tv = firestoreValue.timestampValue;
+    if (typeof tv === 'string') {
+      return { timestampValue: toTimestamp(new Date(tv)) };
+    }
+    if (tv && typeof tv === 'object' && 'seconds' in tv) {
+      return { timestampValue: tv };
+    }
+    return { timestampValue: toTimestamp(new Date()) };
+  }
+  if ('bytesValue' in firestoreValue) {
+    return { bytesValue: firestoreValue.bytesValue };
+  }
+  if ('referenceValue' in firestoreValue) {
+    return { referenceValue: firestoreValue.referenceValue };
+  }
+  if ('geoPointValue' in firestoreValue) {
+    return { geoPointValue: firestoreValue.geoPointValue };
+  }
+  if ('arrayValue' in firestoreValue) {
+    if (firestoreValue.arrayValue && firestoreValue.arrayValue.values) {
+      return {
+        arrayValue: {
+          values: firestoreValue.arrayValue.values.map(toGrpcValue),
+        },
+      };
+    }
+    return { arrayValue: { values: [] } };
+  }
+  if ('mapValue' in firestoreValue) {
+    if (firestoreValue.mapValue && firestoreValue.mapValue.fields) {
+      return {
+        mapValue: {
+          fields: toGrpcFields(firestoreValue.mapValue.fields),
+        },
+      };
+    }
+    return { mapValue: { fields: {} } };
+  }
+  return { nullValue: GRPC_NULL_VALUE };
+}
+
+/**
+ * Sanitize a gRPC value for response
+ * @param value - The gRPC value to sanitize
+ * @returns The sanitized gRPC value
+ * @example
+ * sanitizeGrpcValueForResponse({ stringValue: 'hello' }) // returns { stringValue: 'hello' }
+ */
+export function sanitizeGrpcValueForResponse(value: any): any {
+  if (value === null || value === undefined) {
+    return { nullValue: GRPC_NULL_VALUE };
+  }
+  if (typeof value !== 'object') {
+    return value;
+  }
+  const valueKeyCount = VALUE_TYPE_KEYS.filter((k) => k in value).length;
+  if (valueKeyCount === 0) {
+    return { nullValue: GRPC_NULL_VALUE };
+  }
+  if (valueKeyCount > 1) {
+    return { nullValue: GRPC_NULL_VALUE };
+  }
+  if (value.arrayValue && value.arrayValue.values) {
+    return {
+      ...value,
+      arrayValue: {
+        values: value.arrayValue.values.map(sanitizeGrpcValueForResponse),
+      },
+    };
+  }
+  if (
+    value.mapValue &&
+    value.mapValue.fields &&
+    typeof value.mapValue.fields === 'object'
+  ) {
+    const fields: Record<string, any> = {};
+    Object.keys(value.mapValue.fields).forEach((k) => {
+      fields[k] = sanitizeGrpcValueForResponse(value.mapValue.fields[k]);
+    });
+    return { mapValue: { fields } };
+  }
+  return value;
+}
+
+/**
+ * Sanitize gRPC fields for response
+ * @param fields - The gRPC fields to sanitize
+ * @returns The sanitized gRPC fields
+ * @example
+ * sanitizeGrpcFieldsForResponse({ name: { stringValue: 'John Doe' } }) // returns { name: { stringValue: 'John Doe' } }
+ */
+export function sanitizeGrpcFieldsForResponse(
+  fields: Record<string, any>,
+): Record<string, any> {
+  const out: Record<string, any> = {};
+  Object.keys(fields).forEach((key) => {
+    out[key] = sanitizeGrpcValueForResponse(fields[key]);
+  });
+  return out;
+}
+
+/**
+ * Convert Firestore fields to gRPC fields
+ * @param fields - The Firestore fields to convert
+ * @returns The gRPC fields
+ * @example
+ * toGrpcFields({ name: { stringValue: 'John Doe' } }) // returns { name: { stringValue: 'John Doe' } }
+ */
+export function toGrpcFields(
+  fields: Record<string, FirestoreValue>,
+): Record<string, any> {
+  const grpcFields: Record<string, any> = {};
+  Object.keys(fields).forEach((key) => {
+    const grpcValue = toGrpcValue(fields[key]);
+    if (Object.keys(grpcValue).length > 0) {
+      grpcFields[key] = grpcValue;
+    }
+  });
+  return grpcFields;
+}
+
+/**
+ * Build a document path
+ * @param projectId - The project ID
+ * @param databaseId - The database ID
+ * @param collectionId - The collection ID
+ * @param docId - The document ID
+ * @returns The document path
+ * @example
+ * buildDocumentPath('my-project', 'my-database', 'my-collection', 'my-document') // returns 'projects/my-project/databases/my-database/documents/my-collection/my-document'
+ */
+export function buildDocumentPath(
+  projectId: string,
+  databaseId: string,
+  collectionId: string,
+  docId: string,
+): string {
+  return `projects/${projectId}/databases/${databaseId}/documents/${collectionId}/${docId}`;
+}
 
 /**
  * Parse document path like "projects/{project}/databases/{db}/documents/{path...}/{doc}"

@@ -4,7 +4,7 @@
  */
 
 import * as grpc from '@grpc/grpc-js';
-import { buildDocumentPath, toTimestamp, toGrpcFields } from '../../utils';
+import { buildDocumentPath, toTimestamp, toGrpcFields } from '../utils';
 import type { FirestoreServer } from '../server';
 
 export function handleRunQuery(
