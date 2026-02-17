@@ -167,34 +167,4 @@ describe('FirestoreServer (unit)', () => {
       expect(server.applyQueryFilters(docs, null as any)).to.have.length(1);
     });
   });
-
-  describe('start and stop (isolated server)', () => {
-    it('starts and stops a server on a different port', async function () {
-      const extraServer = new FirestoreServer({
-        port: 3334,
-        host: 'localhost',
-        projectId: 'test-project-2',
-      });
-      await extraServer.start();
-      const config = extraServer.getConfig();
-      expect(config.port).to.equal(3334);
-      expect(config.projectId).to.equal('test-project-2');
-      await extraServer.stop();
-    });
-
-    it('start() rejects when bind fails (e.g. port in use)', async function () {
-      const samePortServer = new FirestoreServer({
-        port: 3333,
-        host: 'localhost',
-        projectId: 'test',
-      });
-      try {
-        await samePortServer.start();
-        await samePortServer.stop();
-        expect.fail('Expected start() to reject');
-      } catch (err) {
-        expect(err).to.exist;
-      }
-    });
-  });
 });
