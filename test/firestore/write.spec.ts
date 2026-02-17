@@ -1,14 +1,14 @@
 /**
- * Unit tests for the Listen gRPC handler (handlers/listen.ts).
- * Listen is a stub that closes the stream with UNIMPLEMENTED.
+ * Unit tests for the Write gRPC handler (handlers/write.ts).
+ * Write is a stub that closes the stream with UNIMPLEMENTED.
  */
 
 import * as grpc from '@grpc/grpc-js';
 import { expect } from 'chai';
-import { handleListen } from '../../src/firestore/handlers/listen';
+import { handleWrite } from '../../src/firestore/handlers/write';
 import { getFirestoreServer } from '../_setup';
 
-describe('Firestore Listen (unit)', () => {
+describe('Firestore Write (unit)', () => {
   function createMockDuplexCall(): {
     call: grpc.ServerDuplexStream<any, any>;
     destroyCalled: boolean;
@@ -37,18 +37,18 @@ describe('Firestore Listen (unit)', () => {
     };
   }
 
-  describe('handleListen (direct)', () => {
+  describe('handleWrite (direct)', () => {
     it('calls destroyStreamWithUnimplemented and closes stream with UNIMPLEMENTED', function () {
       const server = getFirestoreServer();
       const mock = createMockDuplexCall();
-      handleListen(server, mock.call);
+      handleWrite(server, mock.call);
       expect(mock.destroyCalled).to.be.true;
       expect(mock.destroyError).to.exist;
       expect((mock.destroyError as grpc.ServiceError)?.code).to.equal(
         grpc.status.UNIMPLEMENTED,
       );
       expect(mock.destroyError?.message).to.equal(
-        'Listen (real-time) is not supported by this emulator',
+        'Write (streaming) is not supported by this emulator',
       );
     });
   });
