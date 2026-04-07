@@ -138,6 +138,11 @@ The emulator must work with an **unmodified** `firebase-admin`. Any compatibilit
 
 ## Git & Commits
 
+- **Before every commit**, run and make sure all of these pass:
+  1. `npm run lint:fix` — fix any remaining lint issues by hand
+  2. `npm run build`
+  3. `npm run test`
+  Only commit once lint, build and tests are all green.
 - Follow [Conventional Commits](https://www.conventionalcommits.org/).
 - Commit messages must be a **single line only** — no body, no description paragraph, no blank lines, no `Co-Authored-By` or any other trailers.
 - When a commit covers multiple unrelated topics, **split into separate commits** — one per topic.
