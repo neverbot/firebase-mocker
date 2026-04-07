@@ -71,7 +71,8 @@ The Firestore server uses **gRPC** (not REST), loaded from `proto/v1.json` (the 
 - `BatchWrite`
 - `BeginTransaction`
 - `Rollback`
-- Cursor-based pagination inside `RunQuery`: `startAt` / `startAfter` / `endAt` / `endBefore` are ignored. Offset+limit pagination works.
+
+Cursor-based pagination inside `RunQuery` (`startAt` / `startAfter` / `endAt` / `endBefore`) **is** supported, alongside offset + limit.
 
 When an unimplemented RPC is called, the server logs a clear warning to stderr (or throws if `logs.onUnimplemented === 'throw'`).
 
@@ -151,7 +152,6 @@ The emulator must work with an **unmodified** `firebase-admin`. Any compatibilit
 ## Possible future work
 
 - Transactions (`BeginTransaction`, `Rollback`) and `BatchWrite`
-- Cursor-based pagination (`startAt` / `endAt`) in `RunQuery`
 - Optional persistence to disk
 - Security rules emulation
 - Additional Identity Toolkit endpoints (custom tokens, email links, etc.)

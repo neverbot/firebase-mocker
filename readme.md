@@ -207,10 +207,10 @@ Within **RunQuery** (queries like `collection.where(...).orderBy(...).limit(n).g
 | **where** (field filter) | Yes | Single-field conditions (EQUAL, LESS_THAN, etc.). |
 | **where** (composite filter) | Yes | AND/OR of multiple filters. |
 | **where** (unary filter) | Yes | IS_NULL, IS_NAN, etc. |
-| **start_at / startAt** (Cursor) | No | Cursor-based “start at” (SDK: `startAt()` / `startAfter()`). Not applied; all matching docs are considered from the beginning. |
-| **end_at / endAt** (Cursor) | No | Cursor-based “end at” (SDK: `endAt()` / `endBefore()`). Not applied; results are not trimmed by cursor. |
+| **start_at / startAt** (Cursor) | Yes | Cursor-based "start at" (SDK: `startAt()` / `startAfter()`). Honors `before` flag; supports raw values, multi-field tuples, and `DocumentSnapshot` cursors. |
+| **end_at / endAt** (Cursor) | Yes | Cursor-based "end at" (SDK: `endAt()` / `endBefore()`). Honors `before` flag; same value forms as `start_at`. |
 
-So **offset + limit** pagination works; **cursor-based pagination** (start_at/end_at) is not implemented.
+Both **offset + limit** and **cursor-based pagination** (`startAt` / `startAfter` / `endAt` / `endBefore`) are supported.
 
 ### Firebase Auth (HTTP)
 
@@ -250,7 +250,6 @@ The Auth emulator exposes the Identity Toolkit REST API under `/identitytoolkit.
 **Possible future work:**
 
 - Transactions (BeginTransaction, Rollback), BatchWrite
-- Cursor-based pagination (startAt/endAt) in RunQuery
 - Persistence to disk
 - Security rules emulation
 
