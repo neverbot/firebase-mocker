@@ -1348,7 +1348,8 @@ export function applyOrderBy(
     const path =
       field?.field_path ?? field?.fieldPath ?? field?.field_path_string ?? '';
     const dir = o.direction ?? o.Direction ?? 1;
-    return { path, ascending: dir !== 2 };
+    const ascending = dir !== 2 && dir !== 'DESCENDING';
+    return { path, ascending };
   });
 
   return [...documents].sort((a, b) => {

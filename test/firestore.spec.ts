@@ -502,6 +502,96 @@ describe('Firestore Basic Services', () => {
     });
   });
 
+  describe('Cursor pagination (startAt/startAfter/endAt/endBefore)', () => {
+    const seed = async (collectionName: string) => {
+      const col = db.collection(collectionName);
+      await col.doc('a').set({ score: 10 });
+      await col.doc('b').set({ score: 20 });
+      await col.doc('c').set({ score: 30 });
+      await col.doc('d').set({ score: 40 });
+      await col.doc('e').set({ score: 50 });
+      return col;
+    };
+
+    it('startAt(value) returns docs from that value onward (inclusive)', async function () {
+      const col = await seed('cursor-startat');
+      const snap = await col.orderBy('score', 'asc').startAt(30).get();
+      expect(snap.docs.map((d) => d.data()?.score)).to.deep.equal([30, 40, 50]);
+    });
+
+    it('startAfter(value) returns docs strictly after that value', async function () {
+      const col = await seed('cursor-startafter');
+      const snap = await col.orderBy('score', 'asc').startAfter(30).get();
+      expect(snap.docs.map((d) => d.data()?.score)).to.deep.equal([40, 50]);
+    });
+
+    it('endAt(value) returns docs up to and including that value', async function () {
+      const col = await seed('cursor-endat');
+      const snap = await col.orderBy('score', 'asc').endAt(30).get();
+      expect(snap.docs.map((d) => d.data()?.score)).to.deep.equal([10, 20, 30]);
+    });
+
+    it('endBefore(value) returns docs strictly before that value', async function () {
+      const col = await seed('cursor-endbefore');
+      const snap = await col.orderBy('score', 'asc').endBefore(30).get();
+      expect(snap.docs.map((d) => d.data()?.score)).to.deep.equal([10, 20]);
+    });
+
+    it('combines startAfter + limit for paged scans', async function () {
+      const col = await seed('cursor-paged');
+      const page1 = await col.orderBy('score', 'asc').limit(2).get();
+      expect(page1.docs.map((d) => d.data()?.score)).to.deep.equal([10, 20]);
+      const last = page1.docs[page1.docs.length - 1];
+      const page2 = await col
+        .orderBy('score', 'asc')
+        .startAfter(last.data()?.score)
+        .limit(2)
+        .get();
+      expect(page2.docs.map((d) => d.data()?.score)).to.deep.equal([30, 40]);
+    });
+
+    it('respects descending orderBy direction', async function () {
+      const col = await seed('cursor-desc');
+      const snap = await col.orderBy('score', 'desc').startAt(40).get();
+      expect(snap.docs.map((d) => d.data()?.score)).to.deep.equal([
+        40, 30, 20, 10,
+      ]);
+    });
+
+    it('supports startAfter(documentSnapshot) cursors', async function () {
+      const col = await seed('cursor-snapshot');
+      const ref = await col.doc('c').get();
+      const snap = await col.orderBy('score', 'asc').startAfter(ref).get();
+      expect(snap.docs.map((d) => d.data()?.score)).to.deep.equal([40, 50]);
+    });
+
+    it('combines startAt and endAt into a closed range', async function () {
+      const col = await seed('cursor-range');
+      const snap = await col
+        .orderBy('score', 'asc')
+        .startAt(20)
+        .endAt(40)
+        .get();
+      expect(snap.docs.map((d) => d.data()?.score)).to.deep.equal([20, 30, 40]);
+    });
+
+    it('supports cursors over multi-field orderBy', async function () {
+      const col = db.collection('cursor-multi');
+      await col.doc('a').set({ group: 'x', score: 10 });
+      await col.doc('b').set({ group: 'x', score: 20 });
+      await col.doc('c').set({ group: 'y', score: 5 });
+      await col.doc('d').set({ group: 'y', score: 15 });
+      const snap = await col
+        .orderBy('group', 'asc')
+        .orderBy('score', 'asc')
+        .startAfter('x', 10)
+        .get();
+      expect(
+        snap.docs.map((d) => `${d.data()?.group}:${d.data()?.score}`),
+      ).to.deep.equal(['x:20', 'y:5', 'y:15']);
+    });
+  });
+
   describe('Storage (internal)', () => {
     it('debugLog does not throw and logs existing data', async function () {
       const storage = getFirestoreStorage();
