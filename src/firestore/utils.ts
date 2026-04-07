@@ -1369,6 +1369,153 @@ export function applyOrderBy(
 }
 
 /**
+ * Apply cursor pagination (start_at / end_at) to an already-ordered document list.
+ *
+ * Mirrors the semantics of Firestore's StructuredQuery.Cursor:
+ *   startAt(...)     -> start_at with before=true   (inclusive)
+ *   startAfter(...)  -> start_at with before=false  (exclusive)
+ *   endAt(...)       -> end_at   with before=false  (inclusive)
+ *   endBefore(...)   -> end_at   with before=true   (exclusive)
+ *
+ * The cursor's `values` are compared lexicographically against each document's
+ * fields in the same order as the orderBy clauses (which always include an
+ * implicit __name__ as the last field, added by the SDK). A cursor with fewer
+ * values than orderBy fields is treated as a prefix: docs sharing the prefix
+ * compare as equal at the cursor position.
+ *
+ * @param documents - Documents already sorted by applyOrderBy
+ * @param orderBy - The orderBy clauses from the StructuredQuery (raw form)
+ * @param startAt - The start_at Cursor (or undefined)
+ * @param endAt - The end_at Cursor (or undefined)
+ * @param reconstruct - Function to reconstruct the document fields
+ * @returns Documents trimmed by the cursors
+ */
+export function applyCursors(
+  documents: FirestoreDocument[],
+  orderBy: any,
+  startAt: any,
+  endAt: any,
+  reconstruct: (
+    doc: FirestoreDocument,
+    log?: FirestoreLogger,
+  ) => Record<string, FirestoreValue>,
+): FirestoreDocument[] {
+  if (!startAt && !endAt) {
+    return documents;
+  }
+  if (documents.length === 0) {
+    return documents;
+  }
+
+  const arr = Array.isArray(orderBy) ? orderBy : Object.values(orderBy || {});
+  if (arr.length === 0) {
+    return documents;
+  }
+
+  const orders = arr.map((o: any) => {
+    const field = o.field || o.Field || o.field_reference || o.fieldReference;
+    const path =
+      field?.field_path ?? field?.fieldPath ?? field?.field_path_string ?? '';
+    const dir = o.direction ?? o.Direction ?? 1;
+    return { path, ascending: dir !== 2 && dir !== 'DESCENDING' };
+  });
+
+  const readCursorValues = (cursor: any): any[] | null => {
+    if (!cursor) {
+      return null;
+    }
+    const values =
+      cursor.values ?? cursor.Values ?? (Array.isArray(cursor) ? cursor : null);
+    if (!values) {
+      return null;
+    }
+    return Array.isArray(values) ? values : Object.values(values);
+  };
+
+  const readCursorBefore = (cursor: any): boolean => {
+    if (!cursor) {
+      return false;
+    }
+    return Boolean(cursor.before ?? cursor.Before ?? false);
+  };
+
+  // Normalize a cursor Value to a comparable form. For __name__, we want a
+  // plain string (the full document path) so it lines up with FirestoreDocument.name.
+  const normalizeCursorValue = (
+    raw: any,
+    isName: boolean,
+  ): FirestoreValue | string | number | null => {
+    if (raw === null || raw === undefined) {
+      return null;
+    }
+    if (isName) {
+      if (typeof raw === 'string') {
+        return raw;
+      }
+      if (typeof raw === 'object') {
+        return (
+          raw.referenceValue ??
+          raw.reference_value ??
+          raw.stringValue ??
+          raw.string_value ??
+          String(raw)
+        );
+      }
+      return String(raw);
+    }
+    return raw as FirestoreValue;
+  };
+
+  // Compare a doc against a cursor's value tuple, honoring direction.
+  // Returns negative if doc comes before the cursor in iteration order,
+  // 0 if equal on the provided prefix, positive if after.
+  const compareDocAgainstCursor = (
+    doc: FirestoreDocument,
+    cursorValues: any[],
+  ): number => {
+    const fields = reconstruct(doc);
+    const len = Math.min(cursorValues.length, orders.length);
+    for (let i = 0; i < len; i++) {
+      const { path, ascending } = orders[i];
+      const isName = path === '__name__';
+      const docVal = isName ? doc.name : getFieldValueByPath(fields, path);
+      const cursorVal = normalizeCursorValue(cursorValues[i], isName);
+      const rawCmp = compareValuesForOrder(docVal, cursorVal);
+      if (rawCmp !== 0) {
+        return ascending ? rawCmp : -rawCmp;
+      }
+    }
+    return 0;
+  };
+
+  let result = documents;
+
+  const startValues = readCursorValues(startAt);
+  if (startValues && startValues.length > 0) {
+    const before = readCursorBefore(startAt);
+    result = result.filter((doc) => {
+      const cmp = compareDocAgainstCursor(doc, startValues);
+      // before=true  (startAt, inclusive)  -> keep cmp >= 0
+      // before=false (startAfter, exclusive) -> keep cmp > 0
+      return before ? cmp >= 0 : cmp > 0;
+    });
+  }
+
+  const endValues = readCursorValues(endAt);
+  if (endValues && endValues.length > 0) {
+    const before = readCursorBefore(endAt);
+    result = result.filter((doc) => {
+      const cmp = compareDocAgainstCursor(doc, endValues);
+      // before=false (endAt, inclusive)  -> keep cmp <= 0
+      // before=true  (endBefore, exclusive) -> keep cmp < 0
+      return before ? cmp < 0 : cmp <= 0;
+    });
+  }
+
+  return result;
+}
+
+/**
  * Destroy a duplex stream with UNIMPLEMENTED (for Listen/Write stubs)
  * @param call - The duplex stream to destroy
  * @param details - The details of the error

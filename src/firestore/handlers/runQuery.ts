@@ -141,6 +141,23 @@ export function handleRunQuery(
         documents = server.applyOrderBy(documents, orderBy);
       }
 
+      const startAt =
+        structuredQuery.start_at ??
+        structuredQuery.startAt ??
+        structuredQuery.StartAt;
+      const endAt =
+        structuredQuery.end_at ??
+        structuredQuery.endAt ??
+        structuredQuery.EndAt;
+      if ((startAt || endAt) && orderByLen > 0) {
+        const before = documents.length;
+        documents = server.applyCursors(documents, orderBy, startAt, endAt);
+        server.logger.log(
+          'grpc',
+          `RunQuery DEBUG: Applied cursors (start_at=${startAt ? 'yes' : 'no'}, end_at=${endAt ? 'yes' : 'no'}); ${before} -> ${documents.length}`,
+        );
+      }
+
       let rawLimit: unknown =
         structuredQuery.limit ??
         structuredQuery.Limit ??

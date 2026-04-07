@@ -564,6 +564,21 @@ export class FirestoreServer {
     return firestoreUtils.applyQueryFilters(documents, filter, this.logger);
   }
 
+  public applyCursors(
+    documents: FirestoreDocument[],
+    orderBy: any,
+    startAt: any,
+    endAt: any,
+  ): FirestoreDocument[] {
+    return firestoreUtils.applyCursors(
+      documents,
+      orderBy,
+      startAt,
+      endAt,
+      (doc) => firestoreUtils.reconstructDocumentFields(doc, this.logger),
+    );
+  }
+
   public destroyStreamWithUnimplemented(
     call: grpc.ServerDuplexStream<any, any>,
     details: string,
