@@ -72,102 +72,43 @@ For logs, use `addConfig({ logs: { ... } })` **before** starting servers:
 
 ## Usage
 
-Start **only the servers you need**. Each method sets the corresponding environment variable so the Firebase Admin SDK uses that emulator.
-
-### 1. Firestore server only
-
-Start the Firestore gRPC emulator. The Admin SDK will use it for `admin.firestore()` when `FIRESTORE_EMULATOR_HOST` is set (done automatically by `startFirestoreServer()`).
+Start only the servers you need (one or both) **before** initializing the Firebase Admin SDK. Each `start*` call sets the matching emulator environment variable so the Admin SDK transparently routes to the local server.
 
 ```typescript
 import { firebaseMocker } from 'firebase-mocker';
 import * as admin from 'firebase-admin';
 
-// Start the Firestore emulator (sets FIRESTORE_EMULATOR_HOST)
+// Start the emulators you need (omit either call to skip that server)
 const firestoreServer = await firebaseMocker.startFirestoreServer({
   port: 3333,
   host: 'localhost',
   projectId: 'my-project',
 });
-
-// Initialize Firebase Admin — it will use the emulator
-admin.initializeApp({ projectId: 'my-project' });
-const db = admin.firestore();
-
-// Use Firestore as usual; all calls go to the emulator via gRPC
-const ref = db.collection('users').doc('user1');
-await ref.set({ name: 'Jane', email: 'jane@example.com' });
-const snap = await ref.get();
-console.log(snap.data());
-
-// When done (e.g. after tests)
-await firebaseMocker.stopFirestoreServer();
-```
-
-- **Before** initializing the Admin SDK, call `startFirestoreServer()` so `FIRESTORE_EMULATOR_HOST` is set.
-- Use the returned `FirestoreServer` for `getStorage()` (test helpers); use `firebaseMocker.stopFirestoreServer()` to shut down.
-
-### 2. Firebase Auth server only
-
-Start the Auth HTTP emulator. The Admin SDK will use it for `admin.auth()` when `FIREBASE_AUTH_EMULATOR_HOST` is set (done automatically by `startAuthServer()`).
-
-```typescript
-import { firebaseMocker } from 'firebase-mocker';
-import * as admin from 'firebase-admin';
-
-// Start the Auth emulator (sets FIREBASE_AUTH_EMULATOR_HOST)
 const authServer = await firebaseMocker.startAuthServer({
   port: 9099,
   host: 'localhost',
   projectId: 'my-project',
 });
 
-// Initialize Firebase Admin — Auth API will use the emulator
+// Initialize Firebase Admin — it will pick up the emulator env vars
 admin.initializeApp({ projectId: 'my-project' });
+const db = admin.firestore();
 const auth = admin.auth();
 
-// Use Auth as usual (createUser, getUserByEmail, deleteUser, etc.)
+// Use the SDKs as usual; all calls go to the local emulators
+await db.collection('users').doc('user1').set({ name: 'Jane' });
 const user = await auth.createUser({ email: 'jane@example.com', password: 'secret' });
-console.log(user.uid);
 
-// When done
-await firebaseMocker.stopAuthServer();
-```
-
-- **Before** initializing the Admin SDK, call `startAuthServer()` so `FIREBASE_AUTH_EMULATOR_HOST` is set.
-- Use `authServer.getStorage()` to access the in-memory user store (e.g. to assert created users in tests).
-- Use `firebaseMocker.stopAuthServer()` to stop the server (the package keeps a reference to the last started Auth server).
-
-### 3. Both servers (Firestore + Auth)
-
-You can run both emulators in the same process (e.g. in test setup). Start both **before** initializing the Admin SDK.
-
-```typescript
-import { firebaseMocker } from 'firebase-mocker';
-import * as admin from 'firebase-admin';
-
-// Start both emulators; pass each server its options (stored under "firestore" and "firebase-auth" internally)
-const firestoreServer = await firebaseMocker.startFirestoreServer({
-  port: 3333,
-  host: 'localhost',
-  projectId: 'my-project',
-});
-const authServer = await firebaseMocker.startAuthServer({
-  port: 9099,
-  host: 'localhost',
-  projectId: 'my-project',
-});
-
-// Now both admin.firestore() and admin.auth() use the emulators
-admin.initializeApp({ projectId: 'my-project' });
-const db = admin.firestore();
-const auth = admin.auth();
-
-// ... use db and auth ...
-
-// Teardown: stop both via firebaseMocker
+// Teardown (e.g. after tests)
 await firebaseMocker.stopFirestoreServer();
 await firebaseMocker.stopAuthServer();
 ```
+
+Notes:
+
+- Call `startFirestoreServer()` / `startAuthServer()` **before** `admin.initializeApp(...)` so `FIRESTORE_EMULATOR_HOST` / `FIREBASE_AUTH_EMULATOR_HOST` are set in time.
+- Each server is independent — call only the one(s) you need; `stop*` only the ones you started.
+- Use `firestoreServer.getStorage()` / `authServer.getStorage()` to inspect the in-memory state from tests.
 
 ## Implemented APIs
 
@@ -179,7 +120,7 @@ The Firestore emulator implements these gRPC methods:
 |--------|-----------|---------------------------------|
 | `GetDocument` | Yes | Single document fetch (`doc(id).get()`) |
 | `ListDocuments` | Yes | List documents in a collection |
-| `RunQuery` | Yes | Queries (`collection.get()`, `where()`, `orderBy()`) |
+| `RunQuery` | Yes | Queries (`collection.get()`, `where()` field/composite/unary, `orderBy()` ASC/DESC including `__name__`, `limit()`, `offset()`, and cursor pagination `startAt()` / `startAfter()` / `endAt()` / `endBefore()`) |
 | `RunAggregationQuery` | Yes | Aggregation queries, e.g. `count().get()` (COUNT supported; sum/avg return 0) |
 | `CreateDocument` | Yes | Create document with server-generated ID |
 | `UpdateDocument` | Yes | Update existing document |
@@ -194,23 +135,6 @@ The Firestore emulator implements these gRPC methods:
 | `Rollback` | No | Returns UNIMPLEMENTED |
 
 When an unsupported RPC is called, the emulator logs a clear warning to stderr (or throws if `logs.onUnimplemented` is `'throw'`). See **Configuration** for `onUnimplemented`.
-
-#### RunQuery: order, limit, pagination and related behaviour
-
-Within **RunQuery** (queries like `collection.where(...).orderBy(...).limit(n).get()`), the following are implemented or not:
-
-| Feature | Implemented | Notes |
-|--------|-------------|--------|
-| **orderBy** | Yes | Multiple sort fields, ASC/DESC; supports `__name__` (document ID). |
-| **limit** | Yes | Max number of documents; supports numeric and protobuf `{ value: n }` form. |
-| **offset** | Yes | Number of documents to skip before returning results. |
-| **where** (field filter) | Yes | Single-field conditions (EQUAL, LESS_THAN, etc.). |
-| **where** (composite filter) | Yes | AND/OR of multiple filters. |
-| **where** (unary filter) | Yes | IS_NULL, IS_NAN, etc. |
-| **start_at / startAt** (Cursor) | Yes | Cursor-based "start at" (SDK: `startAt()` / `startAfter()`). Honors `before` flag; supports raw values, multi-field tuples, and `DocumentSnapshot` cursors. |
-| **end_at / endAt** (Cursor) | Yes | Cursor-based "end at" (SDK: `endAt()` / `endBefore()`). Honors `before` flag; same value forms as `start_at`. |
-
-Both **offset + limit** and **cursor-based pagination** (`startAt` / `startAfter` / `endAt` / `endBefore`) are supported.
 
 ### Firebase Auth (HTTP)
 
