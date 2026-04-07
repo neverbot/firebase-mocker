@@ -55,7 +55,7 @@ The Firestore server uses **gRPC** (not REST), loaded from `proto/v1.json` (the 
 
 - `GetDocument`
 - `ListDocuments`
-- `RunQuery` (with `where` field/composite/unary filters, `orderBy`, `limit`, `offset`)
+- `RunQuery` (with `where` field/composite/unary filters, `orderBy`, `limit`, `offset`, and cursor pagination `startAt` / `startAfter` / `endAt` / `endBefore`)
 - `RunAggregationQuery` (COUNT supported; sum/avg currently return 0)
 - `CreateDocument`
 - `UpdateDocument`
@@ -71,8 +71,6 @@ The Firestore server uses **gRPC** (not REST), loaded from `proto/v1.json` (the 
 - `BatchWrite`
 - `BeginTransaction`
 - `Rollback`
-
-Cursor-based pagination inside `RunQuery` (`startAt` / `startAfter` / `endAt` / `endBefore`) **is** supported, alongside offset + limit.
 
 When an unimplemented RPC is called, the server logs a clear warning to stderr (or throws if `logs.onUnimplemented === 'throw'`).
 
