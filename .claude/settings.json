@@ -2,6 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npm outdated:*)",
+      "Bash(npm run:*)",
+      "Bash(npm test :*)",
       "Bash(git check-ignore:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
