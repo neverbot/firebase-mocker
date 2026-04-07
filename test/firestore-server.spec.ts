@@ -16,7 +16,6 @@
  */
 
 import { expect } from 'chai';
-import { FirestoreServer } from '../src/firestore';
 import type { FirestoreDocument } from '../src/types';
 import { getFirestoreServer } from './_setup';
 

@@ -71,7 +71,7 @@ export class AuthServer {
   }
 
   private async handleApi(req: Request, res: Response): Promise<void> {
-    const api = req.params.api;
+    const api = String(req.params.api);
     const body = (req.body || {}) as Record<string, unknown>;
 
     // Debug: log every Auth API request
