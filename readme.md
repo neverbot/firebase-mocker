@@ -5,6 +5,8 @@ A TypeScript-based emulator of the Firebase services. It provides **separate ser
  - **Firestore** (gRPC)
  - **Firebase Auth** (HTTP)
 
+All data is stored **in memory** using TypeScript data structures (Maps, arrays, plain objects). Writes and reads go against these in-memory collections instead of a real database, so the emulator behaves like a real Firebase backend — but without network calls, credentials, or disk persistence.
+
 ## Overview
 
 Firebase Mocker can run:
@@ -78,12 +80,14 @@ Start only the servers you need (one or both) **before** initializing the Fireba
 import { firebaseMocker } from 'firebase-mocker';
 import * as admin from 'firebase-admin';
 
-// Start the emulators you need (omit either call to skip that server)
+// Sets FIRESTORE_EMULATOR_HOST with the right value automatically
 const firestoreServer = await firebaseMocker.startFirestoreServer({
   port: 3333,
   host: 'localhost',
   projectId: 'my-project',
 });
+
+// Sets FIREBASE_AUTH_EMULATOR_HOST with the right value automatically
 const authServer = await firebaseMocker.startAuthServer({
   port: 9099,
   host: 'localhost',
