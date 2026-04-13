@@ -114,7 +114,7 @@ Notes:
 - Each server is independent — call only the one(s) you need; `stop*` only the ones you started.
 - Use `firestoreServer.getStorage()` / `authServer.getStorage()` to inspect the in-memory state from tests.
 
-## Implemented APIs
+## Implemented APIs & Current Status
 
 ### Firestore (gRPC)
 
@@ -154,32 +154,8 @@ The Auth emulator exposes the Identity Toolkit REST API under `/identitytoolkit.
 
 ## Technical notes
 
-- **Firestore protocol:** gRPC only. The Firestore server uses the same proto definitions as the official client (`@google-cloud/firestore`). No REST API for Firestore.
-- **Auth protocol:** HTTP (REST). The Auth server implements the Identity Toolkit API that the Firebase Admin Auth client calls when `FIREBASE_AUTH_EMULATOR_HOST` is set.
 - **IPv6 (Firestore):** The Firestore server binds to `[::]:port` so it accepts both IPv4 and IPv6 (Firebase Admin SDK may use IPv6).
 - **Proto source:** The server loads definitions from `proto/v1.json` (bundled in this package). That file is a copy of `@google-cloud/firestore/build/protos/v1.json`. To update it (e.g. after upgrading firebase-admin), run: `cp node_modules/@google-cloud/firestore/build/protos/v1.json proto/v1.json` from the firebase-mocker package root.
-- **Implementation alignment:** When adding or changing RPCs, compare with the definitions in `@google-cloud/firestore/build/protos/`.
-- **Field naming:** Response messages use a mix of `snake_case` and `camelCase` depending on the RPC (CommitResponse/WriteResult use snake_case; BatchGetDocumentsResponse/Document use camelCase). Do not change them without testing both document creation and reads.
-- **Null values:** In gRPC `Value` messages, null must be encoded as `nullValue: 0`, not `nullValue: null`, or the Firebase Admin SDK may throw when decoding.
-
-## Status
-
-**Firestore emulator** — Implemented and in use:
-
-- Basic CRUD (get, set, update, delete) via Commit, GetDocument, BatchGetDocuments, CreateDocument, UpdateDocument, DeleteDocument
-- Queries with filters, orderBy, limit, offset (RunQuery); composite and unary filters supported
-- Batch get (`doc(id).get()`)
-- Real-time listeners (Listen) and Write stream
-- Aggregation queries (RunAggregationQuery; COUNT supported)
-- ListCollectionIds (`doc.ref.listCollections()`)
-
-**Firebase Auth emulator** — Implemented: lookup, createUser, deleteUser, updateUser (Identity Toolkit API in memory).
-
-**Possible future work:**
-
-- Transactions (BeginTransaction, Rollback), BatchWrite
-- Persistence to disk
-- Security rules emulation
 
 ## License
 
