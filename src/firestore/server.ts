@@ -87,7 +87,7 @@ export class FirestoreServer {
         ? service.fullName.substring(1)
         : service.fullName;
       const methodPath = `/${serviceName}/${methodName}`;
-      this.logger.log('server', `Registering gRPC method: ${methodPath}`);
+      this.logger.log('grpc', `Registering gRPC method: ${methodPath}`);
       serviceDefinition[methodName] = {
         path: methodPath,
         requestStream: method.requestStream || false,
@@ -317,10 +317,7 @@ export class FirestoreServer {
 
           try {
             if (fs.existsSync(localJsonPath)) {
-              this.logger.log(
-                'server',
-                'Loading proto from local proto/v1.json',
-              );
+              this.logger.log('grpc', 'Loading proto from local proto/v1.json');
 
               const jsonProto = JSON.parse(
                 fs.readFileSync(localJsonPath, 'utf8'),
@@ -342,7 +339,7 @@ export class FirestoreServer {
               }
 
               if (fs.existsSync(jsonProtoPath)) {
-                this.logger.log('server', 'Loading proto from JSON');
+                this.logger.log('grpc', 'Loading proto from JSON');
 
                 const jsonProto = JSON.parse(
                   fs.readFileSync(jsonProtoPath, 'utf8'),
@@ -351,14 +348,14 @@ export class FirestoreServer {
                 this.protobufRoot = protobuf.Root.fromJSON(jsonProto);
               } else if (protoPath === officialProtoPath) {
                 this.logger.log(
-                  'server',
+                  'grpc',
                   'Loading proto from .proto file (fallback)',
                 );
 
                 this.protobufRoot = await protobuf.load(protoPath);
               } else {
                 this.logger.log(
-                  'server',
+                  'grpc',
                   'Loading proto from local .proto file (fallback)',
                 );
 
@@ -418,9 +415,9 @@ export class FirestoreServer {
                 serviceImplementation,
               );
 
-              this.logger.log('server', 'Loaded proto with protobufjs');
+              this.logger.log('grpc', 'Loaded proto with protobufjs');
               this.logger.log(
-                'server',
+                'grpc',
                 `Registered methods: ${Object.keys(serviceImplementation).join(', ')}`,
               );
             }
