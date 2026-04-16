@@ -201,11 +201,14 @@ export class StorageServer {
 
       // Extract boundary from Content-Type header
       const contentTypeHeader = req.headers['content-type'] || '';
-      const boundaryMatch = contentTypeHeader.match(/boundary=(.+)/);
+      const boundaryMatch = /boundary=(.+)/.exec(contentTypeHeader);
       if (!boundaryMatch) {
-        res
-          .status(400)
-          .json({ error: { message: 'Missing boundary in multipart request', code: 400 } });
+        res.status(400).json({
+          error: {
+            message: 'Missing boundary in multipart request',
+            code: 400,
+          },
+        });
         return;
       }
 
@@ -213,14 +216,17 @@ export class StorageServer {
       const parsed = this.parseMultipartBody(rawBody, boundary);
 
       if (!parsed) {
-        res
-          .status(400)
-          .json({ error: { message: 'Failed to parse multipart body', code: 400 } });
+        res.status(400).json({
+          error: { message: 'Failed to parse multipart body', code: 400 },
+        });
         return;
       }
 
-      const contentType = parsed.metadata.contentType as string || 'application/octet-stream';
-      const customMetadata = parsed.metadata.metadata as Record<string, string> | undefined;
+      const contentType =
+        (parsed.metadata.contentType as string) || 'application/octet-stream';
+      const customMetadata = parsed.metadata.metadata as
+        | Record<string, string>
+        | undefined;
 
       // Store the object with additional metadata fields
       const metadata = this.storage.setObject(
@@ -239,7 +245,8 @@ export class StorageServer {
         metadata.contentEncoding = parsed.metadata.contentEncoding as string;
       }
       if (parsed.metadata.contentDisposition) {
-        metadata.contentDisposition = parsed.metadata.contentDisposition as string;
+        metadata.contentDisposition = parsed.metadata
+          .contentDisposition as string;
       }
 
       this.logger.info(
@@ -274,27 +281,41 @@ export class StorageServer {
     // Split by delimiter
     while (true) {
       const delimStart = bodyStr.indexOf(delimiterStr, searchStart);
-      if (delimStart === -1) break;
+      if (delimStart === -1) {
+        break;
+      }
 
       const afterDelim = delimStart + delimiterStr.length;
 
       // Check if this is the end delimiter
-      if (bodyStr.substring(afterDelim, afterDelim + 2) === '--') break;
+      if (bodyStr.substring(afterDelim, afterDelim + 2) === '--') {
+        break;
+      }
 
       // Find the next delimiter
       const nextDelimStart = bodyStr.indexOf(delimiterStr, afterDelim);
-      if (nextDelimStart === -1) break;
+      if (nextDelimStart === -1) {
+        break;
+      }
 
       // The part is between afterDelim and nextDelimStart
       // Skip the \r\n after the delimiter
       let partStart = afterDelim;
-      if (bodyStr[partStart] === '\r') partStart++;
-      if (bodyStr[partStart] === '\n') partStart++;
+      if (bodyStr[partStart] === '\r') {
+        partStart++;
+      }
+      if (bodyStr[partStart] === '\n') {
+        partStart++;
+      }
 
       // Remove trailing \r\n before the next delimiter
       let partEnd = nextDelimStart;
-      if (bodyStr[partEnd - 1] === '\n') partEnd--;
-      if (bodyStr[partEnd - 1] === '\r') partEnd--;
+      if (bodyStr[partEnd - 1] === '\n') {
+        partEnd--;
+      }
+      if (bodyStr[partEnd - 1] === '\r') {
+        partEnd--;
+      }
 
       parts.push(Buffer.from(bodyStr.substring(partStart, partEnd), 'binary'));
       searchStart = afterDelim;
