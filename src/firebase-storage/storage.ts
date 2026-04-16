@@ -54,6 +54,10 @@ export class StorageStorage {
     return bucket;
   }
 
+  getBuckets(): Map<string, Map<string, StoredObject>> {
+    return this.buckets;
+  }
+
   getObject(bucketName: string, objectName: string): StoredObject | undefined {
     return this.buckets.get(bucketName)?.get(objectName);
   }
@@ -238,23 +242,23 @@ export class StorageStorage {
 
   debugLog(): void {
     if (this.buckets.size === 0) {
-      this.logger.info('storage', '[STORAGE] No objects');
+      this.logger.info('debugStorage', '[STORAGE] No objects');
       return;
     }
-    this.logger.info('storage', '[STORAGE] === Objects ===');
+    this.logger.info('debugStorage', '[STORAGE] === Objects ===');
     for (const [bucketName, bucket] of this.buckets.entries()) {
       this.logger.info(
-        'storage',
+        'debugStorage',
         `  Bucket: ${bucketName} (${bucket.size} objects)`,
       );
       for (const [name, obj] of bucket.entries()) {
         this.logger.info(
-          'storage',
+          'debugStorage',
           `    ${name}: ${obj.metadata.contentType} (${obj.metadata.size} bytes)`,
         );
       }
     }
-    this.logger.info('storage', '[STORAGE] === End ===');
+    this.logger.info('debugStorage', '[STORAGE] === End ===');
   }
 
   private computeMd5(data: Buffer): string {

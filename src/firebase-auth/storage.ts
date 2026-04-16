@@ -73,17 +73,17 @@ export class AuthStorage {
    */
   debugLog(): void {
     if (this.usersByUid.size === 0) {
-      this.logger.info('auth', '[AUTH Storage] No users');
+      this.logger.info('debugAuth', '[AUTH Storage] No users');
       return;
     }
-    this.logger.info('auth', '[AUTH Storage] === Users ===');
-    this.logger.info('auth', `Total users: ${this.usersByUid.size}`);
+    this.logger.info('debugAuth', '[AUTH Storage] === Users ===');
+    this.logger.info('debugAuth', `Total users: ${this.usersByUid.size}`);
     for (const [uid, user] of this.usersByUid.entries()) {
       this.logger.info(
         'auth',
         `  ${uid}: email=${user.email ?? '(none)'} displayName=${user.displayName ?? '(none)'} createdAt=${user.createdAt}`,
       );
     }
-    this.logger.info('auth', '[AUTH Storage] === End ===');
+    this.logger.info('debugAuth', '[AUTH Storage] === End ===');
   }
 }

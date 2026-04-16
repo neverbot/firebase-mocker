@@ -38,6 +38,9 @@ export interface CommonConfig {
     verboseGrpcLogs?: boolean;
     verboseAuthLogs?: boolean;
     verboseStorageLogs?: boolean;
+    verboseFirestoreDebug?: boolean;
+    verboseAuthDebug?: boolean;
+    verboseStorageDebug?: boolean;
     /** When an unimplemented RPC is called: 'warn' = log to stderr and return UNIMPLEMENTED, 'throw' = throw so process fails */
     onUnimplemented?: 'warn' | 'throw';
   };
@@ -90,6 +93,9 @@ class Config {
         verboseGrpcLogs: false,
         verboseAuthLogs: false,
         verboseStorageLogs: false,
+        verboseFirestoreDebug: false,
+        verboseAuthDebug: false,
+        verboseStorageDebug: false,
         onUnimplemented: 'warn',
       },
     };
