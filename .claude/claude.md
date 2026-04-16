@@ -10,8 +10,9 @@ Currently emulated:
 
 - **Firestore** — gRPC server (default port `3333`), sets `FIRESTORE_EMULATOR_HOST`.
 - **Firebase Auth** — HTTP server implementing the Identity Toolkit REST API (default port `9099`), sets `FIREBASE_AUTH_EMULATOR_HOST`.
+- **Firebase Storage** — HTTP server implementing the Google Cloud Storage JSON API (default port `9199`), sets `FIREBASE_STORAGE_EMULATOR_HOST`.
 
-Each server can be started independently or both together. State is kept in memory; nothing is persisted to disk.
+Each server can be started independently or in any combination. State is kept in memory; nothing is persisted to disk.
 
 ## Public API (entry point)
 
@@ -21,9 +22,11 @@ The package exposes a `firebaseMocker` object from `src/index.ts`:
 - `firebaseMocker.stopFirestoreServer()` — stop it.
 - `firebaseMocker.startAuthServer({ port, host, projectId })` — start the Auth HTTP emulator. Sets `FIREBASE_AUTH_EMULATOR_HOST` before returning.
 - `firebaseMocker.stopAuthServer()` — stop it.
-- `addConfig({ logs: { verboseGrpcLogs, verboseAuthLogs, onUnimplemented } })` — configure logging and the policy for unimplemented RPCs (`'warn'` default, or `'throw'` for strict CI).
+- `firebaseMocker.startStorageServer({ port, host, projectId })` — start the Storage HTTP emulator. Sets `FIREBASE_STORAGE_EMULATOR_HOST` before returning.
+- `firebaseMocker.stopStorageServer()` — stop it.
+- `addConfig({ logs: { verboseGrpcLogs, verboseAuthLogs, verboseStorageLogs, onUnimplemented } })` — configure logging and the policy for unimplemented RPCs (`'warn'` default, or `'throw'` for strict CI).
 
-Both `startFirestoreServer` / `startAuthServer` must be called **before** `admin.initializeApp(...)` so the env vars are picked up by the Admin SDK.
+All `start*Server` methods must be called **before** `admin.initializeApp(...)` so the env vars are picked up by the Admin SDK.
 
 ## Repo layout
 
@@ -31,9 +34,10 @@ Both `startFirestoreServer` / `startAuthServer` must be called **before** `admin
   - `src/index.ts` — public API (`firebaseMocker`)
   - `src/firestore/` — Firestore gRPC server, handlers, in-memory storage, query/value conversion
   - `src/firebase-auth/` — Firebase Auth HTTP server (Identity Toolkit endpoints) and in-memory user store
+  - `src/firebase-storage/` — Firebase Storage HTTP server (GCS JSON API) and in-memory object store
   - `src/config.ts`, `src/logger.ts`, `src/types.ts` — shared config, logging, types
 - `proto/v1.json` — Firestore proto definitions, copied from `@google-cloud/firestore/build/protos/v1.json`
-- `test/` — Mocha + Chai test suites (`firestore.spec.ts`, `firestore-server.spec.ts`, `firestore-utils.spec.ts`, `firebase-auth.spec.ts`, plus `firestore/` and `firebase-auth/` helpers and `_setup.ts`)
+- `test/` — Mocha + Chai test suites (`firestore.spec.ts`, `firestore-server.spec.ts`, `firestore-utils.spec.ts`, `firebase-auth.spec.ts`, `firebase-storage.spec.ts`, plus `firestore/`, `firebase-auth/`, and `firebase-storage/` helpers and `_setup.ts`)
 - `scripts/` — helper scripts
 - `dist/` — build output (`tsc`)
 - `readme.md` — user-facing documentation
@@ -86,6 +90,24 @@ Implemented endpoints:
 - `accounts:update` — `updateUser(uid, { ... })`
 
 Other Identity Toolkit endpoints (custom token sign-in, email link, etc.) return 404.
+
+## Firebase Storage emulator (HTTP)
+
+The Storage server implements the Google Cloud Storage JSON API. The `@google-cloud/storage` client (used by `firebase-admin`) connects to it when `FIREBASE_STORAGE_EMULATOR_HOST` is set. `firebase-admin` internally converts this to `STORAGE_EMULATOR_HOST=http://host:port`.
+
+### Implemented endpoints
+
+- **Resumable upload** — `POST /upload/storage/v1/b/{bucket}/o` (create session) + `PUT` (upload data)
+- **Download** — `GET /b/{bucket}/o/{name}?alt=media`
+- **Get metadata** — `GET /b/{bucket}/o/{name}`
+- **Update metadata** — `PATCH /b/{bucket}/o/{name}`
+- **Delete** — `DELETE /b/{bucket}/o/{name}`
+- **List objects** — `GET /b/{bucket}/o` (with `prefix`, `delimiter`, `maxResults`, `pageToken`)
+- **Firebase download URL** — `GET /v0/b/{bucket}/o/{name}?alt=media&token=...`
+
+### In-memory storage
+
+Files are stored as `Buffer` objects in a `Map<bucket, Map<objectPath, { data, metadata }>>`. Metadata includes `name`, `bucket`, `contentType`, `size`, `timeCreated`, `updated`, `generation`, `md5Hash`, `crc32c`, and optional custom metadata. CRC32C is computed correctly (Castagnoli) so the SDK's upload integrity validation passes.
 
 ## Important technical notes
 
@@ -153,3 +175,4 @@ The emulator must work with an **unmodified** `firebase-admin`. Any compatibilit
 - Optional persistence to disk
 - Security rules emulation
 - Additional Identity Toolkit endpoints (custom tokens, email links, etc.)
+- Storage: copy/rewrite, compose objects
