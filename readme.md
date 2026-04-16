@@ -4,6 +4,7 @@ A TypeScript-based emulator of the Firebase services. It provides **separate ser
 
  - **Firestore** (gRPC)
  - **Firebase Auth** (HTTP)
+ - **Firebase Storage** (HTTP)
 
 All data is stored **in memory** using TypeScript data structures (Maps, arrays, plain objects). Writes and reads go against these in-memory collections instead of a real database, so the emulator behaves like a real Firebase backend — but without network calls, credentials, or disk persistence.
 
@@ -15,7 +16,9 @@ Firebase Mocker can run:
 
 2. **Firebase Auth emulator** — An **HTTP server** that implements the Identity Toolkit REST API. The Admin SDK Auth API (e.g. `getUserByEmail`, `createUser`, `deleteUser`) uses it when `FIREBASE_AUTH_EMULATOR_HOST` is set. Use it to test auth flows without hitting production Firebase Auth.
 
-You can start **one or both** servers in the same process (e.g. in your test setup). Each server is independent: start only what your tests or app need.
+3. **Firebase Storage emulator** — An **HTTP server** that implements the Google Cloud Storage JSON API. The Admin SDK Storage API (e.g. `bucket.file().save()`, `file.download()`, `file.delete()`) uses it when `FIREBASE_STORAGE_EMULATOR_HOST` is set. Use it to test file uploads and downloads without a real GCS bucket.
+
+You can start **one, two, or all three** servers in the same process (e.g. in your test setup). Each server is independent: start only what your tests or app need.
 
 ## Installation
 
@@ -46,7 +49,7 @@ npm run build
 
 ## Configuration
 
-Configuration is passed when starting each server. You can pass different options to `startFirestoreServer()` and `startAuthServer()`.
+Configuration is passed when starting each server. You can pass different options to `startFirestoreServer()`, `startAuthServer()`, and `startStorageServer()`.
 
 ### Firestore server options
 
@@ -64,12 +67,21 @@ When calling `startAuthServer(config)`:
 - **host** — Bind address (default `'localhost'`)
 - **projectId** — Project ID (optional)
 
+### Firebase Storage server options
+
+When calling `startStorageServer(config)`:
+
+- **port** — HTTP server port (default `9199`)
+- **host** — Bind address (default `'localhost'`)
+- **projectId** — Project ID (optional)
+
 ### Common options
 
 For logs, use `addConfig({ logs: { ... } })` **before** starting servers:
 
 - **verboseGrpcLogs** — Log every gRPC call (default `false`). Set `true` for debugging.
 - **verboseAuthLogs** — Log Auth API requests (default `false`).
+- **verboseStorageLogs** — Log Storage API requests (default `false`).
 - **onUnimplemented** — When an RPC is not implemented: `'warn'` (default) writes a clear message to stderr and returns UNIMPLEMENTED; `'throw'` throws so the process fails. Example: `addConfig({ logs: { onUnimplemented: 'throw' } })` for strict CI.
 
 ## Usage
@@ -94,25 +106,35 @@ const authServer = await firebaseMocker.startAuthServer({
   projectId: 'my-project',
 });
 
+// Sets FIREBASE_STORAGE_EMULATOR_HOST with the right value automatically
+const storageServer = await firebaseMocker.startStorageServer({
+  port: 9199,
+  host: 'localhost',
+  projectId: 'my-project',
+});
+
 // Initialize Firebase Admin — it will pick up the emulator env vars
 admin.initializeApp({ projectId: 'my-project' });
 const db = admin.firestore();
 const auth = admin.auth();
+const bucket = admin.storage().bucket('my-bucket');
 
 // Use the SDKs as usual; all calls go to the local emulators
 await db.collection('users').doc('user1').set({ name: 'Jane' });
 const user = await auth.createUser({ email: 'jane@example.com', password: 'secret' });
+await bucket.file('hello.txt').save(Buffer.from('Hello!'), { contentType: 'text/plain' });
 
 // Teardown (e.g. after tests)
 await firebaseMocker.stopFirestoreServer();
 await firebaseMocker.stopAuthServer();
+await firebaseMocker.stopStorageServer();
 ```
 
 Notes:
 
-- Call `startFirestoreServer()` / `startAuthServer()` **before** `admin.initializeApp(...)` so `FIRESTORE_EMULATOR_HOST` / `FIREBASE_AUTH_EMULATOR_HOST` are set in time.
+- Call `start*Server()` **before** `admin.initializeApp(...)` so the emulator env vars are set in time.
 - Each server is independent — call only the one(s) you need; `stop*` only the ones you started.
-- Use `firestoreServer.getStorage()` / `authServer.getStorage()` to inspect the in-memory state from tests.
+- Use `server.getStorage()` on any server instance to inspect the in-memory state from tests.
 
 ## Implemented APIs & Current Status
 
@@ -151,6 +173,22 @@ The Auth emulator exposes the Identity Toolkit REST API under `/identitytoolkit.
 | `accounts:delete` | Yes | `deleteUser(uid)` |
 | `accounts:update` | Yes | `updateUser(uid, { ... })` |
 | Other Identity Toolkit endpoints | No | Return 404 (e.g. custom token sign-in, email link, etc.) |
+
+### Firebase Storage (HTTP)
+
+The Storage emulator implements the Google Cloud Storage JSON API. The Firebase Admin SDK (via `@google-cloud/storage`) uses it when `FIREBASE_STORAGE_EMULATOR_HOST` is set. Files are stored in memory as Buffers; use `storageServer.getStorage()` for test helpers.
+
+| Operation | Supported | Used by Firebase Admin SDK for |
+|-----------|-----------|--------------------------------|
+| Resumable upload (POST + PUT) | Yes | `file.save()`, `file.createWriteStream()` |
+| Download (`alt=media`) | Yes | `file.download()` |
+| Get metadata | Yes | `file.getMetadata()` |
+| Update metadata | Yes | `file.setMetadata()` |
+| Delete object | Yes | `file.delete()` |
+| List objects | Yes | `bucket.getFiles()` (with `prefix`, `delimiter`, pagination) |
+| Firebase download URL (`/v0/...`) | Yes | `getDownloadURL()` |
+| Copy / rewrite | No | — |
+| Compose objects | No | — |
 
 ## Technical notes
 
