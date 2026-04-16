@@ -5,6 +5,7 @@
 
 import * as admin from 'firebase-admin';
 import { AuthServer } from '../src/firebase-auth';
+import { StorageServer } from '../src/firebase-storage';
 import { FirestoreServer } from '../src/firestore';
 import { firebaseMocker } from '../src/index';
 
@@ -12,6 +13,7 @@ import { firebaseMocker } from '../src/index';
 let firebaseApp: admin.app.App | undefined = undefined;
 let firestoreServer: FirestoreServer | null = null;
 let authServer: AuthServer | null = null;
+let storageServer: StorageServer | null = null;
 let isInitialized = false;
 let isTearingDown = false;
 
@@ -35,6 +37,13 @@ export async function setup(): Promise<void> {
   // Start the Firebase Auth emulator (HTTP)
   authServer = await firebaseMocker.startAuthServer({
     port: 9099,
+    host: 'localhost',
+    projectId: 'test-project',
+  });
+
+  // Start the Firebase Storage emulator (HTTP)
+  storageServer = await firebaseMocker.startStorageServer({
+    port: 9199,
     host: 'localhost',
     projectId: 'test-project',
   });
@@ -86,6 +95,12 @@ export async function teardown(): Promise<void> {
 
   isTearingDown = true;
 
+  if (storageServer) {
+    await firebaseMocker.stopStorageServer();
+    storageServer = null;
+    console.log('[SERVER] Storage server stopped');
+  }
+
   if (authServer) {
     await firebaseMocker.stopAuthServer();
     authServer = null;
@@ -106,6 +121,8 @@ export async function teardown(): Promise<void> {
 
   delete process.env.FIREBASE_AUTH_EMULATOR_HOST;
   delete process.env.FIRESTORE_EMULATOR_HOST;
+  delete process.env.FIREBASE_STORAGE_EMULATOR_HOST;
+  delete process.env.STORAGE_EMULATOR_HOST;
 
   isInitialized = false;
   isTearingDown = false;
@@ -165,6 +182,23 @@ export function getAuthServer(): AuthServer {
  */
 export function getAuthStorage() {
   return getAuthServer().getStorage();
+}
+
+/**
+ * Get the Storage emulator server instance
+ */
+export function getStorageServer(): StorageServer {
+  if (!storageServer) {
+    throw new Error('Storage server not initialized. Call setup() first.');
+  }
+  return storageServer;
+}
+
+/**
+ * Get the Storage emulator storage instance (for direct access to internal storage)
+ */
+export function getStorageStorage() {
+  return getStorageServer().getStorage();
 }
 
 /**

@@ -1,13 +1,20 @@
 /**
- * Main entry point for Firestore and Auth emulator servers
+ * Main entry point for Firestore, Auth, and Storage emulator servers
  */
 
-import { config, FirestoreConfig, FirebaseAuthConfig } from './config';
+import {
+  config,
+  FirestoreConfig,
+  FirebaseAuthConfig,
+  FirebaseStorageConfig,
+} from './config';
 import { AuthServer } from './firebase-auth';
+import { StorageServer } from './firebase-storage';
 import { FirestoreServer } from './firestore';
 
 let authServer: AuthServer | null = null;
 let firestoreServer: FirestoreServer | null = null;
+let storageServer: StorageServer | null = null;
 
 /**
  * Main firebaseMocker object with factory methods
@@ -86,6 +93,41 @@ export const firebaseMocker = {
       await firestoreServer.stop();
       firestoreServer = null;
       delete process.env.FIRESTORE_EMULATOR_HOST;
+    }
+  },
+
+  /**
+   * Start the Firebase Storage HTTP emulator (GCS JSON API).
+   * Sets FIREBASE_STORAGE_EMULATOR_HOST so firebase-admin Storage uses this emulator.
+   * @param opts - Storage config (port, host, projectId)
+   * @returns StorageServer instance
+   */
+  startStorageServer: async (
+    opts?: Partial<FirebaseStorageConfig>,
+  ): Promise<StorageServer> => {
+    config.addConfig({ 'firebase-storage': opts });
+
+    const c = config.getObject('firebase-storage');
+    process.env.FIREBASE_STORAGE_EMULATOR_HOST = `${c.host as string}:${c.port as number}`;
+
+    storageServer = new StorageServer({
+      port: c.port as number,
+      host: c.host as string,
+      projectId: c.projectId as string,
+    });
+    await storageServer.start();
+    return storageServer;
+  },
+
+  /**
+   * Stop the last started Storage server (if any).
+   */
+  stopStorageServer: async (): Promise<void> => {
+    if (storageServer) {
+      await storageServer.stop();
+      storageServer = null;
+      delete process.env.FIREBASE_STORAGE_EMULATOR_HOST;
+      delete process.env.STORAGE_EMULATOR_HOST;
     }
   },
 };

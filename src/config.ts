@@ -22,12 +22,22 @@ export interface FirebaseAuthConfig {
 }
 
 /**
+ * Firebase Storage emulator configuration (HTTP server)
+ */
+export interface FirebaseStorageConfig {
+  port: number;
+  host: string;
+  projectId?: string;
+}
+
+/**
  * Optional configuration for the emulators (e.g. default logs)
  */
 export interface CommonConfig {
   logs?: {
     verboseGrpcLogs?: boolean;
     verboseAuthLogs?: boolean;
+    verboseStorageLogs?: boolean;
     /** When an unimplemented RPC is called: 'warn' = log to stderr and return UNIMPLEMENTED, 'throw' = throw so process fails */
     onUnimplemented?: 'warn' | 'throw';
   };
@@ -40,6 +50,7 @@ export interface CommonConfig {
 export interface Configuration {
   firestore?: Partial<FirestoreConfig>;
   'firebase-auth'?: Partial<FirebaseAuthConfig>;
+  'firebase-storage'?: Partial<FirebaseStorageConfig>;
   logs?: CommonConfig['logs'];
 }
 
@@ -51,6 +62,12 @@ export const DEFAULT_FIRESTORE: FirestoreConfig = {
 
 export const DEFAULT_FIREBASE_AUTH: Required<FirebaseAuthConfig> = {
   port: 9099,
+  host: 'localhost',
+  projectId: 'demo-project',
+};
+
+export const DEFAULT_FIREBASE_STORAGE: Required<FirebaseStorageConfig> = {
+  port: 9199,
   host: 'localhost',
   projectId: 'demo-project',
 };
@@ -68,9 +85,11 @@ class Config {
     this.storage = {
       firestore: { ...DEFAULT_FIRESTORE },
       'firebase-auth': { ...DEFAULT_FIREBASE_AUTH },
+      'firebase-storage': { ...DEFAULT_FIREBASE_STORAGE },
       logs: {
         verboseGrpcLogs: false,
         verboseAuthLogs: false,
+        verboseStorageLogs: false,
         onUnimplemented: 'warn',
       },
     };
@@ -97,6 +116,12 @@ class Config {
       this.storage['firebase-auth'] = {
         ...this.storage['firebase-auth'],
         ...patch['firebase-auth'],
+      };
+    }
+    if (patch['firebase-storage'] !== undefined) {
+      this.storage['firebase-storage'] = {
+        ...this.storage['firebase-storage'],
+        ...patch['firebase-storage'],
       };
     }
     if (patch.logs !== undefined) {

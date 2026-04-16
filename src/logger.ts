@@ -14,6 +14,7 @@ export type LogType =
   | 'test'
   | 'grpc'
   | 'auth'
+  | 'storage'
   | 'server'
   | 'error'
   | 'info';
@@ -70,6 +71,10 @@ export class Logger {
     }
     // Check if we should log Firebase Auth emulator messages
     if (type === 'auth' && !config.getBoolean('logs.verboseAuthLogs')) {
+      return;
+    }
+    // Check if we should log Firebase Storage emulator messages
+    if (type === 'storage' && !config.getBoolean('logs.verboseStorageLogs')) {
       return;
     }
 
