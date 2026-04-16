@@ -450,11 +450,7 @@ export class FirestoreServer {
 
               this.logger.log(
                 'server',
-                `Firestore gRPC emulator server running on ${this.config.host}:${port}${isIPv6 ? ' (IPv6 [::], accepts both IPv4 and IPv6 connections)' : ''}`,
-              );
-              this.logger.log(
-                'server',
-                `Project ID: ${this.config.projectId || 'default'}`,
+                `[FIRESTORE] Firebase Firestore emulator gRPC server running on http://${this.config.host}:${port}${isIPv6 ? ' (IPv6 [::])' : ''}`,
               );
 
               resolve();
@@ -475,7 +471,7 @@ export class FirestoreServer {
         this.logger.log('grpc', 'Stopping server...');
         this.grpcServer.forceShutdown();
         this.grpcServer = undefined;
-        this.logger.log('server', 'Firestore gRPC emulator server stopped');
+        this.logger.log('server', '[FIRESTORE] Firebase Firestore emulator server stopped');
       }
 
       Promise.all(promises).then(() => resolve());
