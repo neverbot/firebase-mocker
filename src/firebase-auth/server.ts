@@ -321,7 +321,7 @@ export class AuthServer {
     return new Promise((resolve) => {
       this.server = this.app.listen(this.config.port, this.config.host, () => {
         this.logger.info(
-          'auth',
+          'server',
           `[AUTH] Firebase Auth emulator HTTP server running on http://${this.config.host}:${this.config.port}`,
         );
         resolve();
@@ -337,7 +337,7 @@ export class AuthServer {
       }
       this.server.close(() => {
         this.logger.info(
-          'auth',
+          'server',
           '[AUTH] Firebase Auth emulator server stopped',
         );
         this.server = undefined;

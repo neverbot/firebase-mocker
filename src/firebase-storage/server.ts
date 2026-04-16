@@ -587,7 +587,7 @@ export class StorageServer {
     return new Promise((resolve) => {
       this.server = this.app.listen(this.config.port, this.config.host, () => {
         this.logger.info(
-          'storage',
+          'server',
           `[STORAGE] Firebase Storage emulator HTTP server running on http://${this.config.host}:${this.config.port}`,
         );
         resolve();
@@ -603,7 +603,7 @@ export class StorageServer {
       }
       this.server.close(() => {
         this.logger.info(
-          'storage',
+          'server',
           '[STORAGE] Firebase Storage emulator server stopped',
         );
         this.server = undefined;
