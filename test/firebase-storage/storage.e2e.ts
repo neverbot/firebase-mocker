@@ -48,6 +48,67 @@ describe('Firebase Storage (e2e)', () => {
     });
   });
 
+  describe('multipart upload (resumable: false)', () => {
+    it('uploads and downloads a text file with resumable: false', async function () {
+      const file = bucket.file('multipart/hello.txt');
+      const content = 'Hello via multipart upload!';
+
+      await file.save(Buffer.from(content), {
+        contentType: 'text/plain',
+        resumable: false,
+      });
+
+      const [downloaded] = await file.download();
+      expect(downloaded.toString()).to.equal(content);
+    });
+
+    it('uploads a binary file with resumable: false and downloads it intact', async function () {
+      const imagePath = path.join(__dirname, 'fixtures', 'test-image.png');
+      const imageData = fs.readFileSync(imagePath);
+
+      const file = bucket.file('multipart/test-image.png');
+      await file.save(imageData, {
+        contentType: 'image/png',
+        resumable: false,
+      });
+
+      const [downloaded] = await file.download();
+      expect(Buffer.compare(downloaded, imageData)).to.equal(0);
+    });
+
+    it('preserves custom metadata with resumable: false', async function () {
+      const file = bucket.file('multipart/with-meta.txt');
+      await file.save(Buffer.from('data'), {
+        contentType: 'text/plain',
+        resumable: false,
+        metadata: {
+          metadata: {
+            customKey: 'customValue',
+          },
+        },
+      });
+
+      const [metadata] = await file.getMetadata();
+      expect(metadata.name).to.equal('multipart/with-meta.txt');
+      expect(metadata.contentType).to.equal('text/plain');
+      expect(metadata.metadata).to.deep.include({ customKey: 'customValue' });
+    });
+
+    it('passes CRC32C integrity validation with resumable: false', async function () {
+      const file = bucket.file('multipart/integrity.txt');
+      // validation: 'crc32c' is the default, but be explicit
+      await file.save(Buffer.from('integrity check'), {
+        contentType: 'text/plain',
+        resumable: false,
+        validation: 'crc32c',
+      });
+
+      const [metadata] = await file.getMetadata();
+      expect(metadata.crc32c).to.be.a('string');
+      expect(metadata.md5Hash).to.be.a('string');
+    });
+  });
+
   describe('metadata', () => {
     it('returns correct metadata after upload', async function () {
       const file = bucket.file('meta-test.txt');

@@ -181,6 +181,7 @@ The Storage emulator implements the Google Cloud Storage JSON API. The Firebase 
 | Operation | Supported | Used by Firebase Admin SDK for |
 |-----------|-----------|--------------------------------|
 | Resumable upload (POST + PUT) | Yes | `file.save()`, `file.createWriteStream()` |
+| Multipart upload (`resumable: false`) | Yes | `file.save(data, { resumable: false })` |
 | Download (`alt=media`) | Yes | `file.download()` |
 | Get metadata | Yes | `file.getMetadata()` |
 | Update metadata | Yes | `file.setMetadata()` |

@@ -36,12 +36,27 @@ export class StorageServer {
   }
 
   private setupRoutes(): void {
-    // Resumable upload: create session
+    // Upload endpoint: handles both multipart (simple) and resumable uploads
     this.app.post(
       '/upload/storage/v1/b/:bucket/o',
-      express.json({ limit: '200mb' }),
       (req: Request, res: Response) => {
-        this.handleCreateResumableUpload(req, res);
+        const contentType = req.headers['content-type'] || '';
+        const uploadType = req.query.uploadType as string;
+
+        // Multipart upload: @google-cloud/storage sends uploadType=multipart
+        // with Content-Type: multipart/related containing JSON metadata + file data
+        if (
+          uploadType === 'multipart' ||
+          contentType.includes('multipart/related')
+        ) {
+          this.handleMultipartUpload(req, res);
+          return;
+        }
+
+        // Resumable upload initiation: parse JSON body for metadata
+        express.json({ limit: '200mb' })(req, res, () => {
+          this.handleCreateResumableUpload(req, res);
+        });
       },
     );
 
@@ -160,6 +175,169 @@ export class StorageServer {
     );
 
     res.status(200).set('Location', locationUri).json({});
+  }
+
+  /**
+   * Handle multipart/related uploads (uploadType=multipart).
+   * The request body contains two parts separated by a boundary:
+   * Part 1: application/json metadata
+   * Part 2: binary file data
+   */
+  private handleMultipartUpload(req: Request, res: Response): void {
+    const bucket = this.getBucketName(req);
+    const name = req.query.name as string;
+
+    if (!name) {
+      res
+        .status(400)
+        .json({ error: { message: 'Missing object name', code: 400 } });
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => {
+      const rawBody = Buffer.concat(chunks);
+
+      // Extract boundary from Content-Type header
+      const contentTypeHeader = req.headers['content-type'] || '';
+      const boundaryMatch = contentTypeHeader.match(/boundary=(.+)/);
+      if (!boundaryMatch) {
+        res
+          .status(400)
+          .json({ error: { message: 'Missing boundary in multipart request', code: 400 } });
+        return;
+      }
+
+      const boundary = boundaryMatch[1].trim();
+      const parsed = this.parseMultipartBody(rawBody, boundary);
+
+      if (!parsed) {
+        res
+          .status(400)
+          .json({ error: { message: 'Failed to parse multipart body', code: 400 } });
+        return;
+      }
+
+      const contentType = parsed.metadata.contentType as string || 'application/octet-stream';
+      const customMetadata = parsed.metadata.metadata as Record<string, string> | undefined;
+
+      // Store the object with additional metadata fields
+      const metadata = this.storage.setObject(
+        bucket,
+        name,
+        parsed.data,
+        contentType,
+        customMetadata,
+      );
+
+      // Apply optional metadata fields from the JSON part
+      if (parsed.metadata.cacheControl) {
+        metadata.cacheControl = parsed.metadata.cacheControl as string;
+      }
+      if (parsed.metadata.contentEncoding) {
+        metadata.contentEncoding = parsed.metadata.contentEncoding as string;
+      }
+      if (parsed.metadata.contentDisposition) {
+        metadata.contentDisposition = parsed.metadata.contentDisposition as string;
+      }
+
+      this.logger.info(
+        'storage',
+        `[STORAGE] Multipart upload: bucket=${bucket} name=${name} size=${metadata.size}`,
+      );
+
+      res.status(200).json(metadata);
+    });
+  }
+
+  /**
+   * Parse a multipart/related body into its JSON metadata and binary data parts.
+   * @param body - Raw request body buffer
+   * @param boundary - Multipart boundary string
+   * @returns Parsed metadata and data, or undefined on failure
+   */
+  private parseMultipartBody(
+    body: Buffer,
+    boundary: string,
+  ): { metadata: Record<string, unknown>; data: Buffer } | undefined {
+    // The boundary delimiter in the body is prefixed with --
+    const delimiterStr = `--${boundary}`;
+    const endDelimiterStr = `--${boundary}--`;
+
+    const bodyStr = body.toString('binary');
+
+    // Find the positions of each part
+    const parts: Buffer[] = [];
+    let searchStart = 0;
+
+    // Split by delimiter
+    while (true) {
+      const delimStart = bodyStr.indexOf(delimiterStr, searchStart);
+      if (delimStart === -1) break;
+
+      const afterDelim = delimStart + delimiterStr.length;
+
+      // Check if this is the end delimiter
+      if (bodyStr.substring(afterDelim, afterDelim + 2) === '--') break;
+
+      // Find the next delimiter
+      const nextDelimStart = bodyStr.indexOf(delimiterStr, afterDelim);
+      if (nextDelimStart === -1) break;
+
+      // The part is between afterDelim and nextDelimStart
+      // Skip the \r\n after the delimiter
+      let partStart = afterDelim;
+      if (bodyStr[partStart] === '\r') partStart++;
+      if (bodyStr[partStart] === '\n') partStart++;
+
+      // Remove trailing \r\n before the next delimiter
+      let partEnd = nextDelimStart;
+      if (bodyStr[partEnd - 1] === '\n') partEnd--;
+      if (bodyStr[partEnd - 1] === '\r') partEnd--;
+
+      parts.push(Buffer.from(bodyStr.substring(partStart, partEnd), 'binary'));
+      searchStart = afterDelim;
+    }
+
+    if (parts.length < 2) {
+      return undefined;
+    }
+
+    // Parse each part: split headers from body at the \r\n\r\n boundary
+    const parsePart = (part: Buffer): { headers: string; body: Buffer } => {
+      const partStr = part.toString('binary');
+      const headerEndIndex = partStr.indexOf('\r\n\r\n');
+      if (headerEndIndex === -1) {
+        // Try \n\n as fallback
+        const altIndex = partStr.indexOf('\n\n');
+        if (altIndex === -1) {
+          return { headers: '', body: part };
+        }
+        return {
+          headers: partStr.substring(0, altIndex),
+          body: Buffer.from(partStr.substring(altIndex + 2), 'binary'),
+        };
+      }
+      return {
+        headers: partStr.substring(0, headerEndIndex),
+        body: Buffer.from(partStr.substring(headerEndIndex + 4), 'binary'),
+      };
+    };
+
+    // Part 0: JSON metadata
+    const metadataPart = parsePart(parts[0]);
+    let metadata: Record<string, unknown> = {};
+    try {
+      metadata = JSON.parse(metadataPart.body.toString('utf-8'));
+    } catch {
+      // If we can't parse JSON, use empty metadata
+    }
+
+    // Part 1: File data
+    const dataPart = parsePart(parts[1]);
+
+    return { metadata, data: dataPart.body };
   }
 
   private handleUploadData(req: Request, res: Response): void {
