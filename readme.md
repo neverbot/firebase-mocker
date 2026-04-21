@@ -1,7 +1,7 @@
 
 [![npm](https://img.shields.io/npm/dt/firebase-mocker)](https://www.npmjs.com/package/firebase-mocker)
 [![npm](https://img.shields.io/npm/dw/firebase-mocker)](https://www.npmjs.com/package/firebase-mocker)
-[![GitHub license](https://img.shields.io/github/license/neverbot/firebase-mocker)](https://github.com/neverbot/firebase-mocker/blob/master/LICENSE.md)
+[![GitHub license](https://img.shields.io/github/license/neverbot/firebase-mocker)](https://github.com/neverbot/firebase-mocker/blob/master/license.md)
 [![npm](https://img.shields.io/npm/v/firebase-mocker)](https://www.npmjs.com/package/firebase-mocker)
 
 # Firebase Mocker
