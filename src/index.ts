@@ -11,6 +11,10 @@ import {
 import { AuthServer } from './firebase-auth';
 import { generateTestIdToken } from './firebase-auth/jwt';
 import { StorageServer } from './firebase-storage';
+import {
+  patchGetSignedUrl,
+  unpatchGetSignedUrl,
+} from './firebase-storage/sign-url-patch';
 import { FirestoreServer } from './firestore';
 
 let authServer: AuthServer | null = null;
@@ -117,6 +121,7 @@ export const firebaseMocker = {
       projectId: c.projectId as string,
     });
     await storageServer.start();
+    patchGetSignedUrl(c.host as string, c.port as number);
     return storageServer;
   },
 
@@ -125,6 +130,7 @@ export const firebaseMocker = {
    */
   stopStorageServer: async (): Promise<void> => {
     if (storageServer) {
+      unpatchGetSignedUrl();
       await storageServer.stop();
       storageServer = null;
       delete process.env.FIREBASE_STORAGE_EMULATOR_HOST;
