@@ -251,4 +251,105 @@ describe('Firestore BatchGetDocuments (unit)', () => {
       });
     });
   });
+
+  describe('BatchGetDocuments with newTransaction', () => {
+    it('returns a transaction ID in the first response and tracks it in storage', function (done) {
+      const server = getFirestoreServer();
+      const responses: {
+        transaction?: Buffer;
+        found?: unknown;
+        missing?: string;
+        readTime?: unknown;
+      }[] = [];
+
+      // Seed one document
+      server
+        .getStorage()
+        .setDocument('test-project', '(default)', 'txn-bgd', 'doc1', {
+          name: 'projects/test-project/databases/(default)/documents/txn-bgd/doc1',
+          fields: {},
+          createTime: new Date().toISOString(),
+          updateTime: new Date().toISOString(),
+        });
+
+      const call = {
+        request: {
+          database: 'projects/test-project/databases/(default)',
+          documents: [
+            'projects/test-project/databases/(default)/documents/txn-bgd/doc1',
+          ],
+          newTransaction: { readWrite: {} },
+        },
+        write(
+          response: (typeof responses)[number],
+          callback?: (err?: Error) => void,
+        ): boolean {
+          responses.push(response);
+          if (callback) {
+            callback();
+          }
+          return true;
+        },
+        end(): void {
+          try {
+            expect(responses.length).to.be.greaterThan(0);
+            const first = responses[0];
+            expect(first.transaction).to.exist;
+            expect(Buffer.isBuffer(first.transaction)).to.be.true;
+            const txnId = first.transaction!.toString('utf8');
+            expect(server.getStorage().hasTransaction(txnId)).to.be.true;
+            server.getStorage().endTransaction(txnId);
+            done();
+          } catch (err) {
+            done(err as Error);
+          }
+        },
+        destroy() {},
+        on() {},
+      } as unknown as grpc.ServerWritableStream<any, any>;
+
+      handleBatchGetDocuments(server, call);
+    });
+
+    it('emits one response with transaction even when no documents requested', function (done) {
+      const server = getFirestoreServer();
+      const responses: {
+        transaction?: Buffer;
+        readTime?: unknown;
+      }[] = [];
+
+      const call = {
+        request: {
+          database: 'projects/test-project/databases/(default)',
+          documents: [],
+          newTransaction: { readWrite: {} },
+        },
+        write(
+          response: (typeof responses)[number],
+          callback?: (err?: Error) => void,
+        ): boolean {
+          responses.push(response);
+          if (callback) {
+            callback();
+          }
+          return true;
+        },
+        end(): void {
+          try {
+            expect(responses.length).to.equal(1);
+            expect(responses[0].transaction).to.exist;
+            const txnId = responses[0].transaction!.toString('utf8');
+            server.getStorage().endTransaction(txnId);
+            done();
+          } catch (err) {
+            done(err as Error);
+          }
+        },
+        destroy() {},
+        on() {},
+      } as unknown as grpc.ServerWritableStream<any, any>;
+
+      handleBatchGetDocuments(server, call);
+    });
+  });
 });

@@ -39,6 +39,21 @@ export function handleRunQuery(
         } as grpc.ServiceError);
         return;
       }
+      let transactionId: string | undefined;
+      const reqNewTxn =
+        (request as { newTransaction?: unknown; new_transaction?: unknown })
+          .newTransaction ||
+        (request as { newTransaction?: unknown; new_transaction?: unknown })
+          .new_transaction;
+      if (reqNewTxn) {
+        transactionId = server.getStorage().createTransaction();
+        server.logger.log(
+          'grpc',
+          `[RunQuery] implicit BeginTransaction txnId=${transactionId}`,
+        );
+      }
+      let isFirstResponse = true;
+
       const parent = request.parent || '';
       const structuredQuery =
         request.structured_query || request.structuredQuery || {};
@@ -253,6 +268,10 @@ export function handleRunQuery(
             });
 
       for (const response of responses) {
+        if (isFirstResponse && transactionId) {
+          response.transaction = Buffer.from(transactionId, 'utf8');
+        }
+        isFirstResponse = false;
         call.write(response);
       }
       call.end();

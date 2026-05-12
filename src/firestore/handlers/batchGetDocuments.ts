@@ -49,6 +49,29 @@ export function handleBatchGetDocuments(
       return;
     }
 
+    let transactionId: string | undefined;
+    const reqNewTxn =
+      (
+        call.request as {
+          newTransaction?: unknown;
+          new_transaction?: unknown;
+        }
+      ).newTransaction ||
+      (
+        call.request as {
+          newTransaction?: unknown;
+          new_transaction?: unknown;
+        }
+      ).new_transaction;
+    if (reqNewTxn) {
+      transactionId = server.getStorage().createTransaction();
+      server.logger.log(
+        'grpc',
+        `[BatchGetDocuments] implicit BeginTransaction txnId=${transactionId}`,
+      );
+    }
+    let isFirstResponse = true;
+
     const docsByCollection = new Map<string, string[]>();
     for (const docPath of documents) {
       const parsed = server.parseDocumentPath(docPath);
@@ -133,6 +156,24 @@ export function handleBatchGetDocuments(
 
     const writeNext = (index: number) => {
       if (index >= responses.length) {
+        if (isFirstResponse && transactionId) {
+          // No document responses were written; emit one response with transaction only.
+          call.write(
+            {
+              readTime: toTimestamp(new Date()),
+              transaction: Buffer.from(transactionId, 'utf8'),
+            },
+            () => {
+              isFirstResponse = false;
+              server.logger.log(
+                'grpc',
+                `BatchGetDocuments: ${compactLog || `${documents.length} docs`} ✓`,
+              );
+              call.end();
+            },
+          );
+          return;
+        }
         server.logger.log(
           'grpc',
           `BatchGetDocuments: ${compactLog || `${documents.length} docs`} ✓`,
@@ -147,6 +188,10 @@ export function handleBatchGetDocuments(
         'grpc',
         `BatchGetDocuments response[${index}]: ${outcome} ${path}`,
       );
+      if (isFirstResponse && transactionId) {
+        responses[index].transaction = Buffer.from(transactionId, 'utf8');
+      }
+      isFirstResponse = false;
       call.write(responses[index], (err?: Error) => {
         if (err) {
           server.logger.error(

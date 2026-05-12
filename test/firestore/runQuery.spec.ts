@@ -172,4 +172,94 @@ describe('Firestore RunQuery (unit)', () => {
       });
     });
   });
+
+  describe('RunQuery with newTransaction', () => {
+    it('emits one response with transaction when query has no results', function (done) {
+      const server = getFirestoreServer();
+      const responses: {
+        transaction?: Buffer;
+        document?: unknown;
+        readTime?: unknown;
+      }[] = [];
+
+      const call = {
+        request: {
+          parent: 'projects/test-project/databases/(default)/documents',
+          structuredQuery: {
+            from: [{ collectionId: `nonexistent-txn-${Date.now()}` }],
+          },
+          newTransaction: { readWrite: {} },
+        },
+        write(response: (typeof responses)[number]): boolean {
+          responses.push(response);
+          return true;
+        },
+        end(): void {
+          try {
+            expect(responses.length).to.equal(1);
+            expect(responses[0].transaction).to.exist;
+            const txnId = responses[0].transaction!.toString('utf8');
+            server.getStorage().endTransaction(txnId);
+            done();
+          } catch (err) {
+            done(err as Error);
+          }
+        },
+        on() {},
+        destroy() {},
+      } as unknown as grpc.ServerWritableStream<any, any>;
+
+      handleRunQuery(server, call);
+    });
+
+    it('includes transaction in first response when query has results', function (done) {
+      const server = getFirestoreServer();
+      const storage = server.getStorage();
+      const collectionId = `txn-rq-coll-${Date.now()}`;
+      const now = new Date().toISOString();
+      storage.setDocument('test-project', '(default)', collectionId, 'doc1', {
+        name: `projects/test-project/databases/(default)/documents/${collectionId}/doc1`,
+        fields: {},
+        createTime: now,
+        updateTime: now,
+      });
+
+      const responses: {
+        transaction?: Buffer;
+        document?: unknown;
+        readTime?: unknown;
+      }[] = [];
+
+      const call = {
+        request: {
+          parent: 'projects/test-project/databases/(default)/documents',
+          structuredQuery: {
+            from: [{ collectionId }],
+          },
+          newTransaction: { readWrite: {} },
+        },
+        write(response: (typeof responses)[number]): boolean {
+          responses.push(response);
+          return true;
+        },
+        end(): void {
+          try {
+            expect(responses.length).to.be.greaterThan(0);
+            expect(responses[0].transaction).to.exist;
+            expect(Buffer.isBuffer(responses[0].transaction)).to.be.true;
+            const txnId = responses[0].transaction!.toString('utf8');
+            expect(server.getStorage().hasTransaction(txnId)).to.be.true;
+            server.getStorage().endTransaction(txnId);
+            done();
+          } catch (err) {
+            done(err as Error);
+          }
+        },
+        on() {},
+        destroy() {},
+      } as unknown as grpc.ServerWritableStream<any, any>;
+
+      handleRunQuery(server, call);
+    });
+  });
 });
