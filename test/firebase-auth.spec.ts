@@ -149,6 +149,85 @@ describe('Firebase Auth (unit)', () => {
     });
   });
 
+  describe('generateTestIdToken', () => {
+    const { generateTestIdToken } =
+      require('../src/firebase-auth/jwt') as typeof import('../src/firebase-auth/jwt');
+
+    it('returns a 3-part dot-separated string with empty signature', () => {
+      const token = generateTestIdToken({
+        uid: 'u1',
+        projectId: 'test-project',
+      });
+      const parts = token.split('.');
+      expect(parts).to.have.length(3);
+      expect(parts[2]).to.equal('');
+    });
+
+    it('header is {alg: "none", typ: "JWT"}', () => {
+      const token = generateTestIdToken({
+        uid: 'u1',
+        projectId: 'test-project',
+      });
+      const headerB64 = token.split('.')[0];
+      const header = JSON.parse(
+        Buffer.from(headerB64, 'base64url').toString('utf8'),
+      );
+      expect(header).to.deep.equal({ alg: 'none', typ: 'JWT' });
+    });
+
+    it('payload has expected claims', () => {
+      const token = generateTestIdToken({
+        uid: 'u1',
+        email: 'a@b.com',
+        projectId: 'test-project',
+      });
+      const payloadB64 = token.split('.')[1];
+      const payload = JSON.parse(
+        Buffer.from(payloadB64, 'base64url').toString('utf8'),
+      );
+      expect(payload.iss).to.equal(
+        'https://securetoken.google.com/test-project',
+      );
+      expect(payload.aud).to.equal('test-project');
+      expect(payload.sub).to.equal('u1');
+      expect(payload.uid).to.equal('u1');
+      expect(payload.email).to.equal('a@b.com');
+      expect(payload.iat).to.be.a('number');
+      expect(payload.exp).to.be.a('number');
+      expect(payload.exp).to.be.greaterThan(payload.iat);
+      expect(payload.auth_time).to.equal(payload.iat);
+      expect(payload.firebase).to.deep.equal({
+        identities: {},
+        sign_in_provider: 'custom',
+      });
+    });
+
+    it('expiresInSeconds is respected', () => {
+      const token = generateTestIdToken({
+        uid: 'u1',
+        projectId: 'test-project',
+        expiresInSeconds: 60,
+      });
+      const payload = JSON.parse(
+        Buffer.from(token.split('.')[1], 'base64url').toString('utf8'),
+      );
+      expect(payload.exp - payload.iat).to.equal(60);
+    });
+
+    it('custom claims are merged into payload', () => {
+      const token = generateTestIdToken({
+        uid: 'u1',
+        projectId: 'test-project',
+        claims: { roles: ['admin'], orgId: 'org-1' },
+      });
+      const payload = JSON.parse(
+        Buffer.from(token.split('.')[1], 'base64url').toString('utf8'),
+      );
+      expect(payload.roles).to.deep.equal(['admin']);
+      expect(payload.orgId).to.equal('org-1');
+    });
+  });
+
   describe('AuthServer (via getAuthServer)', () => {
     it('getStorage returns storage', () => {
       const server = getAuthServer();
