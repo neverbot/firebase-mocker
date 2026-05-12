@@ -19,7 +19,7 @@ describe('Firestore unimplementedUnary (unit)', () => {
   }
 
   describe('handleUnimplementedUnary (direct)', () => {
-    ['BatchWrite', 'BeginTransaction', 'Rollback'].forEach((rpcName) => {
+    ['BatchWrite', 'Rollback'].forEach((rpcName) => {
       it(`${rpcName}: callback with UNIMPLEMENTED and "not supported" message`, function (done) {
         const server = getFirestoreServer();
         const call = createMockCall();

@@ -14,6 +14,7 @@ import {
   FieldType,
 } from '../types';
 import { handleBatchGetDocuments } from './handlers/batchGetDocuments';
+import { handleBeginTransaction } from './handlers/beginTransaction';
 import { handleCommitWithProtobufjs } from './handlers/commit';
 import { handleCreateDocument } from './handlers/createDocument';
 import { handleDeleteDocument } from './handlers/deleteDocument';
@@ -282,7 +283,7 @@ export class FirestoreServer {
             BeginTransaction: (
               call: grpc.ServerUnaryCall<any, any>,
               cb: grpc.sendUnaryData<any>,
-            ) => handleUnimplementedUnary(this, call, cb, 'BeginTransaction'),
+            ) => handleBeginTransaction(this, call, cb),
 
             Rollback: (
               call: grpc.ServerUnaryCall<any, any>,
