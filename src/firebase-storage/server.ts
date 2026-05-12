@@ -270,7 +270,6 @@ export class StorageServer {
   ): { metadata: Record<string, unknown>; data: Buffer } | undefined {
     // The boundary delimiter in the body is prefixed with --
     const delimiterStr = `--${boundary}`;
-    const endDelimiterStr = `--${boundary}--`;
 
     const bodyStr = body.toString('binary');
 
