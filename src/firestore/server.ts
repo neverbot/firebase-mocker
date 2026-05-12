@@ -22,6 +22,7 @@ import { handleGetDocument } from './handlers/getDocument';
 import { handleListCollectionIds } from './handlers/listCollectionIds';
 import { handleListDocuments } from './handlers/listDocuments';
 import { handleListen } from './handlers/listen';
+import { handleRollback } from './handlers/rollback';
 import { handleRunAggregationQuery } from './handlers/runAggregationQuery';
 import { handleRunQuery } from './handlers/runQuery';
 import { handleUnimplementedUnary } from './handlers/unimplementedUnary';
@@ -288,7 +289,7 @@ export class FirestoreServer {
             Rollback: (
               call: grpc.ServerUnaryCall<any, any>,
               cb: grpc.sendUnaryData<any>,
-            ) => handleUnimplementedUnary(this, call, cb, 'Rollback'),
+            ) => handleRollback(this, call, cb),
 
             ListCollectionIds: (
               call: grpc.ServerUnaryCall<any, any>,
