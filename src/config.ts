@@ -31,6 +31,15 @@ export interface FirebaseStorageConfig {
 }
 
 /**
+ * Firebase Remote Config emulator configuration (HTTP server)
+ */
+export interface FirebaseRemoteConfigConfig {
+  port: number;
+  host: string;
+  projectId?: string;
+}
+
+/**
  * Optional configuration for the emulators (e.g. default logs)
  */
 export interface CommonConfig {
@@ -54,6 +63,7 @@ export interface Configuration {
   firestore?: Partial<FirestoreConfig>;
   'firebase-auth'?: Partial<FirebaseAuthConfig>;
   'firebase-storage'?: Partial<FirebaseStorageConfig>;
+  'firebase-remote-config'?: Partial<FirebaseRemoteConfigConfig>;
   logs?: CommonConfig['logs'];
 }
 
@@ -75,6 +85,13 @@ export const DEFAULT_FIREBASE_STORAGE: Required<FirebaseStorageConfig> = {
   projectId: 'demo-project',
 };
 
+export const DEFAULT_FIREBASE_REMOTE_CONFIG: Required<FirebaseRemoteConfigConfig> =
+  {
+    port: 9299,
+    host: 'localhost',
+    projectId: 'demo-project',
+  };
+
 /**
  * Singleton configuration. On first creation, storage is initialized with
  * DEFAULT_FIRESTORE and DEFAULT_FIREBASE_AUTH.
@@ -89,6 +106,7 @@ class Config {
       firestore: { ...DEFAULT_FIRESTORE },
       'firebase-auth': { ...DEFAULT_FIREBASE_AUTH },
       'firebase-storage': { ...DEFAULT_FIREBASE_STORAGE },
+      'firebase-remote-config': { ...DEFAULT_FIREBASE_REMOTE_CONFIG },
       logs: {
         verboseGrpcLogs: false,
         verboseAuthLogs: false,
@@ -128,6 +146,12 @@ class Config {
       this.storage['firebase-storage'] = {
         ...this.storage['firebase-storage'],
         ...patch['firebase-storage'],
+      };
+    }
+    if (patch['firebase-remote-config'] !== undefined) {
+      this.storage['firebase-remote-config'] = {
+        ...this.storage['firebase-remote-config'],
+        ...patch['firebase-remote-config'],
       };
     }
     if (patch.logs !== undefined) {
