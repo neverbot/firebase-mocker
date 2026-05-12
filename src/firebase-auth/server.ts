@@ -195,33 +195,46 @@ export class AuthServer {
       'auth',
       `[AUTH DEBUG] [${this.debugTs()}] accounts (create) | email=${email} localId=${req.localId as string} displayName=${req.displayName as string} | storage has ${userCount} users`,
     );
-    if (!email || typeof email !== 'string') {
+    if (email !== undefined && !email) {
       this.logger.info(
         'auth',
-        `[AUTH DEBUG] [${this.debugTs()}] create => 400 INVALID_EMAIL (missing or invalid email)`,
+        `[AUTH DEBUG] [${this.debugTs()}] create => 400 INVALID_EMAIL (invalid email)`,
       );
       send(400, { error: { message: 'INVALID_EMAIL', code: 400 } });
       return;
     }
 
-    const existing = this.storage.getByEmail(email);
-    if (existing) {
-      const allUids = this.storage.listUids();
-      this.logger.info(
-        'auth',
-        `[AUTH DEBUG] [${this.debugTs()}] create => 400 EMAIL_ALREADY_IN_USE | email=${email} already exists as uid=${existing.localId} (created ${existing.createdAt}) | total users in emulator: ${allUids.length} [${allUids.join(', ')}]`,
-      );
-      send(400, {
-        error: {
-          message: 'The email address is already in use by another account.',
-          code: 400,
-        },
-      });
-      return;
+    if (email) {
+      const existing = this.storage.getByEmail(email);
+      if (existing) {
+        const allUids = this.storage.listUids();
+        this.logger.info(
+          'auth',
+          `[AUTH DEBUG] [${this.debugTs()}] create => 400 EMAIL_ALREADY_IN_USE | email=${email} already exists as uid=${existing.localId} (created ${existing.createdAt}) | total users in emulator: ${allUids.length} [${allUids.join(', ')}]`,
+        );
+        send(400, {
+          error: {
+            message: 'The email address is already in use by another account.',
+            code: 400,
+          },
+        });
+        return;
+      }
     }
 
     const now = new Date().toISOString();
     const localId = (req.localId as string) || randomUid();
+    const providerUserInfo = email
+      ? [
+          {
+            providerId: 'password',
+            rawId: localId,
+            email,
+            displayName: (req.displayName as string) || undefined,
+            photoUrl: (req.photoUrl as string) || undefined,
+          },
+        ]
+      : [];
     const user: AuthEmulatorUser = {
       localId,
       email,
@@ -231,20 +244,15 @@ export class AuthServer {
       phoneNumber: (req.phoneNumber as string) || undefined,
       createdAt: now,
       lastLoginAt: now,
-      providerUserInfo: [
-        {
-          providerId: 'password',
-          rawId: localId,
-          email,
-          displayName: (req.displayName as string) || undefined,
-          photoUrl: (req.photoUrl as string) || undefined,
-        },
-      ],
+      providerUserInfo,
       disabled: false,
     };
 
     this.storage.add(user);
-    this.logger.info('auth', `[AUTH] Created user ${localId} (${email})`);
+    this.logger.info(
+      'auth',
+      `[AUTH] Created user ${localId} (${email ?? 'no email'})`,
+    );
     this.logger.info(
       'auth',
       `[AUTH DEBUG] [${this.debugTs()}] create => 200 localId=${localId}`,

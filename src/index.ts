@@ -9,6 +9,7 @@ import {
   FirebaseStorageConfig,
 } from './config';
 import { AuthServer } from './firebase-auth';
+import { generateTestIdToken } from './firebase-auth/jwt';
 import { StorageServer } from './firebase-storage';
 import { FirestoreServer } from './firestore';
 
@@ -130,4 +131,12 @@ export const firebaseMocker = {
       delete process.env.STORAGE_EMULATOR_HOST;
     }
   },
+
+  /**
+   * Generate an unsigned test ID token compatible with the Firebase Auth Emulator.
+   * The Firebase Admin SDK (in emulator mode) will decode it and accept it
+   * via `auth.verifyIdToken()`. The `projectId` must match the one used in
+   * `admin.initializeApp({ projectId })`.
+   */
+  generateTestIdToken,
 };
