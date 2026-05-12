@@ -81,13 +81,19 @@ export class Logger {
       return;
     }
     // Check if we should log debug output for each emulator
-    if (type === 'debugFirestore' && !config.getBoolean('logs.verboseFirestoreDebug')) {
+    if (
+      type === 'debugFirestore' &&
+      !config.getBoolean('logs.verboseFirestoreDebug')
+    ) {
       return;
     }
     if (type === 'debugAuth' && !config.getBoolean('logs.verboseAuthDebug')) {
       return;
     }
-    if (type === 'debugStorage' && !config.getBoolean('logs.verboseStorageDebug')) {
+    if (
+      type === 'debugStorage' &&
+      !config.getBoolean('logs.verboseStorageDebug')
+    ) {
       return;
     }
 

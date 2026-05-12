@@ -471,7 +471,10 @@ export class FirestoreServer {
         this.logger.log('grpc', 'Stopping server...');
         this.grpcServer.forceShutdown();
         this.grpcServer = undefined;
-        this.logger.log('server', '[FIRESTORE] Firebase Firestore emulator server stopped');
+        this.logger.log(
+          'server',
+          '[FIRESTORE] Firebase Firestore emulator server stopped',
+        );
       }
 
       Promise.all(promises).then(() => resolve());

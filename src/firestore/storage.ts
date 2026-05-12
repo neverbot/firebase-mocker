@@ -177,66 +177,78 @@ export class FirestoreStorage {
    */
   debugLog(): void {
     if (this.projects.size === 0) {
-      this.logger.info('debugFirestore','Storage is empty');
+      this.logger.info('debugFirestore', 'Storage is empty');
       return;
     }
 
-    this.logger.info('debugFirestore','=== Storage Debug Log ===');
-    this.logger.info('debugFirestore',`Total projects: ${this.projects.size}`);
+    this.logger.info('debugFirestore', '=== Storage Debug Log ===');
+    this.logger.info('debugFirestore', `Total projects: ${this.projects.size}`);
 
     for (const [projectId, project] of this.projects.entries()) {
       const databases = Object.keys(project);
-      this.logger.info('debugFirestore',
+      this.logger.info(
+        'debugFirestore',
         `\nProject: ${projectId} (databases: ${databases.length})`,
       );
 
       for (const [databaseId, database] of Object.entries(project)) {
         const collections = Object.keys(database);
-        this.logger.info('debugFirestore',
+        this.logger.info(
+          'debugFirestore',
           `  Database: ${databaseId} (collections: ${collections.length})`,
         );
 
         for (const [collectionId, collection] of Object.entries(database)) {
           const documents = Object.keys(collection);
-          this.logger.info('debugFirestore',
+          this.logger.info(
+            'debugFirestore',
             `    Collection: ${collectionId} (documents: ${documents.length})`,
           );
 
           for (const [docId, document] of Object.entries(collection)) {
-            this.logger.info('debugFirestore',`      Document: ${docId}`);
-            this.logger.info('debugFirestore',`        Path: ${document.name}`);
+            this.logger.info('debugFirestore', `      Document: ${docId}`);
+            this.logger.info(
+              'debugFirestore',
+              `        Path: ${document.name}`,
+            );
             if (document.createTime) {
-              this.logger.info('debugFirestore',
+              this.logger.info(
+                'debugFirestore',
                 `        Create Time: ${document.createTime}`,
               );
             }
             if (document.updateTime) {
-              this.logger.info('debugFirestore',
+              this.logger.info(
+                'debugFirestore',
                 `        Update Time: ${document.updateTime}`,
               );
             }
 
             const fields = Object.keys(document.fields);
             if (fields.length > 0) {
-              this.logger.info('debugFirestore',`        Fields (${fields.length}):`);
+              this.logger.info(
+                'debugFirestore',
+                `        Fields (${fields.length}):`,
+              );
               for (const [fieldName, fieldValue] of Object.entries(
                 document.fields,
               )) {
                 const fieldType = document.fieldTypes?.[fieldName] || 'unknown';
                 const valueStr = this.formatFieldValue(fieldValue);
-                this.logger.info('debugFirestore',
+                this.logger.info(
+                  'debugFirestore',
                   `          - ${fieldName} (${fieldType}): ${valueStr}`,
                 );
               }
             } else {
-              this.logger.info('debugFirestore','        Fields: (empty)');
+              this.logger.info('debugFirestore', '        Fields: (empty)');
             }
           }
         }
       }
     }
 
-    this.logger.info('debugFirestore','\n=== End Storage Debug Log ===');
+    this.logger.info('debugFirestore', '\n=== End Storage Debug Log ===');
   }
 
   /**
