@@ -6,3 +6,4 @@
 export { AuthServer } from './server';
 export type { AuthServerConfig } from './server';
 export { AuthStorage, AuthEmulatorUser } from './storage';
+export type { OobRequestType, OobCodeEntry } from './storage';

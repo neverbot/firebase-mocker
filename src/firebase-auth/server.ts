@@ -115,6 +115,11 @@ export class AuthServer {
         return;
       }
 
+      if (api === 'accounts:sendOobCode') {
+        this.handleSendOobCode(body, send);
+        return;
+      }
+
       send(404, { error: `Unknown API: ${api}` });
     } catch (err) {
       this.logger.error(
@@ -315,6 +320,49 @@ export class AuthServer {
 
     this.storage.add(user);
     send(200, { localId });
+  }
+
+  private handleSendOobCode(
+    req: Record<string, unknown>,
+    send: (status: number, data: object) => void,
+  ): void {
+    const requestType = req.requestType as string;
+    const email = req.email as string;
+
+    this.logger.info(
+      'auth',
+      `[AUTH DEBUG] [${this.debugTs()}] accounts:sendOobCode | email=${email} requestType=${requestType}`,
+    );
+
+    if (!email || !requestType) {
+      send(400, {
+        error: { message: 'INVALID_REQUEST', code: 400 },
+      });
+      return;
+    }
+
+    const oobCode = this.storage.createOobCode(
+      email,
+      requestType as 'PASSWORD_RESET' | 'VERIFY_EMAIL' | 'EMAIL_SIGNIN',
+    );
+
+    const mode =
+      requestType === 'PASSWORD_RESET'
+        ? 'resetPassword'
+        : requestType === 'VERIFY_EMAIL'
+          ? 'verifyEmail'
+          : 'signIn';
+
+    const oobLink =
+      `http://${this.config.host}:${this.config.port}/emulator/action` +
+      `?mode=${mode}&oobCode=${oobCode}&apiKey=fake-api-key`;
+
+    this.logger.info(
+      'auth',
+      `[AUTH] sendOobCode created code=${oobCode} for ${email} (${requestType})`,
+    );
+
+    send(200, { email, oobCode, oobLink });
   }
 
   async start(): Promise<void> {
