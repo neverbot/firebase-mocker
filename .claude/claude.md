@@ -88,8 +88,13 @@ Implemented endpoints:
 - `accounts` (POST) — `createUser({ email, password, ... })`
 - `accounts:delete` — `deleteUser(uid)`
 - `accounts:update` — `updateUser(uid, { ... })`
+- `accounts:sendOobCode` — `generatePasswordResetLink(email)` (returns `{email, oobCode, oobLink}`)
 
-Other Identity Toolkit endpoints (custom token sign-in, email link, etc.) return 404.
+Other Identity Toolkit endpoints (custom token sign-in, email link confirmation, etc.) return 404.
+
+### Test ID token helper
+
+`firebaseMocker.generateTestIdToken({uid, email, projectId})` produces an unsigned JWT (`alg: 'none'`) that the Firebase Admin SDK accepts via `verifyIdToken()` in emulator mode. Use this in tests to simulate authenticated requests. The user must exist in the auth emulator (call `auth.createUser({uid})` first) because the SDK internally calls `getUser(sub)` during verification.
 
 ## Firebase Storage emulator (HTTP)
 
@@ -108,6 +113,10 @@ The Storage server implements the Google Cloud Storage JSON API. The `@google-cl
 ### In-memory storage
 
 Files are stored as `Buffer` objects in a `Map<bucket, Map<objectPath, { data, metadata }>>`. Metadata includes `name`, `bucket`, `contentType`, `size`, `timeCreated`, `updated`, `generation`, `md5Hash`, `crc32c`, and optional custom metadata. CRC32C is computed correctly (Castagnoli) so the SDK's upload integrity validation passes.
+
+### Signed URLs (`getSignedUrl`)
+
+`@google-cloud/storage`'s `file.getSignedUrl()` signs URLs locally using a service account private key, which the emulator does not have. `startStorageServer()` monkey-patches `File.prototype.getSignedUrl` to return a URL pointing to the emulator's existing `/b/:bucket/o/:file?alt=media` route. The patch is restored by `stopStorageServer()`. See `src/firebase-storage/sign-url-patch.ts`.
 
 ## Important technical notes
 
