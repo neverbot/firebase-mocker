@@ -108,6 +108,45 @@ describe('Firebase Auth (unit)', () => {
       });
       expect(() => storage.debugLog()).to.not.throw();
     });
+
+    describe('OOB codes', () => {
+      it('createOobCode returns a non-empty string and stores entry', () => {
+        const code = storage.createOobCode('a@b.com', 'PASSWORD_RESET');
+        expect(code).to.be.a('string').and.not.empty;
+        const entry = storage.getOobCode(code);
+        expect(entry).to.exist;
+        expect(entry?.email).to.equal('a@b.com');
+        expect(entry?.requestType).to.equal('PASSWORD_RESET');
+        expect(entry?.createdAt).to.be.a('string');
+      });
+
+      it('createOobCode produces unique codes', () => {
+        const c1 = storage.createOobCode('a@b.com', 'PASSWORD_RESET');
+        const c2 = storage.createOobCode('a@b.com', 'PASSWORD_RESET');
+        expect(c1).to.not.equal(c2);
+      });
+
+      it('getOobCode returns undefined for unknown code', () => {
+        expect(storage.getOobCode('does-not-exist')).to.be.undefined;
+      });
+
+      it('consumeOobCode returns entry and removes it', () => {
+        const code = storage.createOobCode('a@b.com', 'PASSWORD_RESET');
+        const entry = storage.consumeOobCode(code);
+        expect(entry?.email).to.equal('a@b.com');
+        expect(storage.getOobCode(code)).to.be.undefined;
+      });
+
+      it('consumeOobCode returns undefined for unknown code', () => {
+        expect(storage.consumeOobCode('nope')).to.be.undefined;
+      });
+
+      it('clear removes oobCodes too', () => {
+        const code = storage.createOobCode('a@b.com', 'PASSWORD_RESET');
+        storage.clear();
+        expect(storage.getOobCode(code)).to.be.undefined;
+      });
+    });
   });
 
   describe('AuthServer (via getAuthServer)', () => {

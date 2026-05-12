@@ -3,7 +3,16 @@
  * Mirrors the Identity Toolkit API user shape (localId, email, etc.).
  */
 
+import crypto from 'crypto';
 import { getLogger } from '../logger';
+
+export type OobRequestType = 'PASSWORD_RESET' | 'VERIFY_EMAIL' | 'EMAIL_SIGNIN';
+
+export interface OobCodeEntry {
+  email: string;
+  requestType: OobRequestType;
+  createdAt: string;
+}
 
 export interface AuthEmulatorUser {
   localId: string;
@@ -29,6 +38,7 @@ export interface AuthEmulatorUser {
 export class AuthStorage {
   private readonly usersByUid = new Map<string, AuthEmulatorUser>();
   private readonly usersByEmail = new Map<string, string>(); // email -> localId
+  private readonly oobCodes = new Map<string, OobCodeEntry>();
   private readonly logger = getLogger();
 
   getByUid(uid: string): AuthEmulatorUser | undefined {
@@ -62,10 +72,33 @@ export class AuthStorage {
   clear(): void {
     this.usersByUid.clear();
     this.usersByEmail.clear();
+    this.oobCodes.clear();
   }
 
   listUids(): string[] {
     return Array.from(this.usersByUid.keys());
+  }
+
+  createOobCode(email: string, requestType: OobRequestType): string {
+    const code = crypto.randomUUID();
+    this.oobCodes.set(code, {
+      email,
+      requestType,
+      createdAt: new Date().toISOString(),
+    });
+    return code;
+  }
+
+  getOobCode(code: string): OobCodeEntry | undefined {
+    return this.oobCodes.get(code);
+  }
+
+  consumeOobCode(code: string): OobCodeEntry | undefined {
+    const entry = this.oobCodes.get(code);
+    if (entry) {
+      this.oobCodes.delete(code);
+    }
+    return entry;
   }
 
   /**
