@@ -136,6 +136,28 @@ Notes:
 - Each server is independent — call only the one(s) you need; `stop*` only the ones you started.
 - Use `server.getStorage()` on any server instance to inspect the in-memory state from tests.
 
+### Generating test ID tokens
+
+For code that calls `admin.auth().verifyIdToken(token)` (e.g. auth middleware), use `generateTestIdToken` to produce a token that the Admin SDK will accept in emulator mode:
+
+```typescript
+import { firebaseMocker } from 'firebase-mocker';
+
+const idToken = firebaseMocker.generateTestIdToken({
+  uid: 'user-123',
+  email: 'test@example.com',
+  projectId: 'my-project', // must match admin.initializeApp({ projectId })
+});
+
+// Use in tests: e.g. as Authorization: Bearer ${idToken}
+const decoded = await admin.auth().verifyIdToken(idToken);
+// decoded.uid === 'user-123'
+```
+
+The token is an unsigned JWT (`alg: 'none'`), matching the format the official Firebase Auth Emulator produces. The Firebase Admin SDK in emulator mode validates `iss`, `aud`, `sub`, and `exp` — but skips signature verification.
+
+> **Note**: The Admin SDK calls `getUser(sub)` internally when verifying tokens, so the user must exist in the auth emulator before `verifyIdToken` is called. Create the user via `auth.createUser({ uid })` first.
+
 ## Implemented APIs & Current Status
 
 ### Firestore (gRPC)
@@ -172,6 +194,7 @@ The Auth emulator exposes the Identity Toolkit REST API under `/identitytoolkit.
 | `accounts` (POST) | Yes | `createUser({ email, password, ... })` |
 | `accounts:delete` | Yes | `deleteUser(uid)` |
 | `accounts:update` | Yes | `updateUser(uid, { ... })` |
+| `accounts:sendOobCode` | Yes | `generatePasswordResetLink(email)` (returns URL with extractable `oobCode`) |
 | Other Identity Toolkit endpoints | No | Return 404 (e.g. custom token sign-in, email link, etc.) |
 
 ### Firebase Storage (HTTP)
@@ -188,8 +211,11 @@ The Storage emulator implements the Google Cloud Storage JSON API. The Firebase 
 | Delete object | Yes | `file.delete()` |
 | List objects | Yes | `bucket.getFiles()` (with `prefix`, `delimiter`, pagination) |
 | Firebase download URL (`/v0/...`) | Yes | `getDownloadURL()` |
+| Signed URL (`file.getSignedUrl(...)`) | Yes (via monkey-patch) | `getSignedUrl({action, expires})` returns a URL pointing to the emulator |
 | Copy / rewrite | No | — |
 | Compose objects | No | — |
+
+**Note on signed URLs**: The official `@google-cloud/storage` `getSignedUrl()` requires real service account credentials to sign URLs cryptographically. To support it in emulator mode, `startStorageServer()` monkey-patches `File.prototype.getSignedUrl` to return a URL pointing to the emulator (no signature). `stopStorageServer()` restores the original method.
 
 ## Technical notes
 
