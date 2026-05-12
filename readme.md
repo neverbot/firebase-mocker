@@ -179,8 +179,10 @@ The Firestore emulator implements these gRPC methods:
 | `Write` | Yes | Write stream (used by client SDK) |
 | `ListCollectionIds` | Yes | List subcollection IDs under a document (`doc.ref.listCollections()`) |
 | `BatchWrite` | No | Returns UNIMPLEMENTED; see `onUnimplemented` in Configuration |
-| `BeginTransaction` | No | Returns UNIMPLEMENTED |
-| `Rollback` | No | Returns UNIMPLEMENTED |
+| `BeginTransaction` | Yes (Level 1) | `db.runTransaction()` — atomic commit, no conflict detection (see note below) |
+| `Rollback` | Yes | `db.runTransaction()` rollback when callback throws |
+
+**Note on transactions (Level 1 semantics):** `db.runTransaction()` is supported with atomic commits but **no conflict detection**. All writes inside a transaction are applied atomically (single-threaded in-memory operations). If the callback throws, no writes persist. Conflicts between concurrent transactions are NOT detected — the emulator does not track read sets or document versions, and the SDK's `ABORTED` retry path is never triggered. This is sufficient for the vast majority of single-threaded test suites. Tests that require real Firestore isolation semantics must run against production.
 
 When an unsupported RPC is called, the emulator logs a clear warning to stderr (or throws if `logs.onUnimplemented` is `'throw'`). See **Configuration** for `onUnimplemented`.
 

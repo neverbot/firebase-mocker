@@ -69,14 +69,26 @@ The Firestore server uses **gRPC** (not REST), loaded from `proto/v1.json` (the 
 - `Listen` (real-time listeners, streaming)
 - `Write` (write stream used by client SDK)
 - `ListCollectionIds` (`doc.ref.listCollections()`)
+- `BeginTransaction` (Level 1: atomic commit, no conflict detection)
+- `Rollback` (Level 1: removes transaction tracking)
 
 ### Not implemented (return UNIMPLEMENTED)
 
 - `BatchWrite`
-- `BeginTransaction`
-- `Rollback`
 
 When an unimplemented RPC is called, the server logs a clear warning to stderr (or throws if `logs.onUnimplemented === 'throw'`).
+
+### Transactions (Level 1 semantics)
+
+`db.runTransaction()` works for atomic commits in single-threaded test scenarios but does not detect conflicts:
+
+- `BeginTransaction` generates a UUID transaction ID, tracked in `FirestoreStorage.activeTransactions`.
+- `BatchGetDocuments` and `RunQuery` accept `newTransaction` (generates implicit txn ID, returned in first response) or `transaction` (existing txn, no-op).
+- `Commit` accepts the `transaction` field and removes the ID from tracking after writes are applied.
+- `Rollback` removes the ID from tracking and returns success.
+- No read set tracking, no document versioning, no `ABORTED` retry path.
+
+For tests that need real isolation semantics, use production or the official Firebase emulator.
 
 ## Firebase Auth emulator (HTTP)
 
@@ -180,7 +192,8 @@ The emulator must work with an **unmodified** `firebase-admin`. Any compatibilit
 
 ## Possible future work
 
-- Transactions (`BeginTransaction`, `Rollback`) and `BatchWrite`
+- `BatchWrite`
+- Transactions Level 2: conflict detection and `ABORTED` retry semantics
 - Optional persistence to disk
 - Security rules emulation
 - Additional Identity Toolkit endpoints (custom tokens, email links, etc.)
