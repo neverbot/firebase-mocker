@@ -5,7 +5,10 @@
 
 import * as grpc from '@grpc/grpc-js';
 import { expect } from 'chai';
-import { handleCommit } from '../../src/firestore/handlers/commit';
+import {
+  handleCommit,
+  handleCommitWithProtobufjs,
+} from '../../src/firestore/handlers/commit';
 import { buildDocumentPath } from '../../src/firestore/utils';
 import { getFirestoreServer } from '../_setup';
 
@@ -705,5 +708,54 @@ describe('Firestore Commit (unit)', () => {
       };
       handleCommit(server, call, callback);
     });
+  });
+});
+
+describe('Firestore Commit with transaction field (unit)', () => {
+  it('removes the transaction ID from storage after writes are applied', function (done) {
+    const server = getFirestoreServer();
+    const txnId = server.getStorage().createTransaction();
+    expect(server.getStorage().hasTransaction(txnId)).to.be.true;
+
+    const call = {
+      request: {
+        database: 'projects/test-project/databases/(default)',
+        writes: [],
+        transaction: Buffer.from(txnId, 'utf8'),
+      },
+    } as grpc.ServerUnaryCall<any, any>;
+
+    const callback: grpc.sendUnaryData<any> = (err) => {
+      try {
+        expect(err).to.be.null;
+        expect(server.getStorage().hasTransaction(txnId)).to.be.false;
+        done();
+      } catch (assertionErr) {
+        done(assertionErr);
+      }
+    };
+
+    handleCommitWithProtobufjs(server, call, callback);
+  });
+
+  it('does not throw when transaction field is missing (non-transactional commit)', function (done) {
+    const server = getFirestoreServer();
+    const call = {
+      request: {
+        database: 'projects/test-project/databases/(default)',
+        writes: [],
+      },
+    } as grpc.ServerUnaryCall<any, any>;
+
+    const callback: grpc.sendUnaryData<any> = (err) => {
+      try {
+        expect(err).to.be.null;
+        done();
+      } catch (assertionErr) {
+        done(assertionErr);
+      }
+    };
+
+    handleCommitWithProtobufjs(server, call, callback);
   });
 });

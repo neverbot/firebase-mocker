@@ -429,6 +429,17 @@ export function handleCommit(
       `Commit: ${compactLog || `${writes.length} writes`} ✓`,
     );
 
+    // If the request was part of a transaction, end it now (Level 1: no buffering, just cleanup)
+    const txnBytes = (call.request as { transaction?: Buffer | string })
+      .transaction;
+    if (txnBytes) {
+      const txnId = Buffer.isBuffer(txnBytes)
+        ? txnBytes.toString('utf8')
+        : String(txnBytes);
+      server.getStorage().endTransaction(txnId);
+      server.logger.log('grpc', `[Commit] ended transaction txnId=${txnId}`);
+    }
+
     safeCallback(null, {
       write_results: writeResults,
       commit_time: timestamp,
