@@ -2,6 +2,7 @@
  * In-memory storage for Firestore documents
  */
 
+import crypto from 'crypto';
 import { getLogger } from '../logger';
 import {
   FirestoreDocument,
@@ -13,6 +14,7 @@ import {
 
 export class FirestoreStorage {
   private readonly projects = new Map<string, FirestoreProject>();
+  private readonly activeTransactions = new Set<string>();
   private readonly logger = getLogger();
 
   /**
@@ -165,10 +167,38 @@ export class FirestoreStorage {
   }
 
   /**
+   * Create a new transaction. Returns a unique transaction ID that the
+   * client uses for subsequent reads and the final commit/rollback.
+   * Level 1 semantics: no read set tracking, no conflict detection.
+   */
+  createTransaction(): string {
+    const id = crypto.randomUUID();
+    this.activeTransactions.add(id);
+    return id;
+  }
+
+  /**
+   * Remove a transaction from the active set.
+   * Returns true if the transaction existed and was removed, false otherwise.
+   * Called from Commit (after writes are applied) and Rollback handlers.
+   */
+  endTransaction(id: string): boolean {
+    return this.activeTransactions.delete(id);
+  }
+
+  /**
+   * Check whether a transaction is currently active.
+   */
+  hasTransaction(id: string): boolean {
+    return this.activeTransactions.has(id);
+  }
+
+  /**
    * Clear all data (useful for testing)
    */
   clear(): void {
     this.projects.clear();
+    this.activeTransactions.clear();
   }
 
   /**

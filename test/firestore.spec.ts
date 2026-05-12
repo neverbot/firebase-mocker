@@ -5,6 +5,7 @@
 
 import { expect } from 'chai';
 import * as admin from 'firebase-admin';
+import { FirestoreStorage } from '../src/firestore/storage';
 import { fromFirestoreDocument } from '../src/firestore/utils';
 import { getFirestore, getFirestoreStorage } from './_setup';
 
@@ -607,6 +608,45 @@ describe('Firestore Basic Services', () => {
       });
 
       expect(() => storage.debugLog()).to.not.throw();
+    });
+  });
+});
+
+describe('FirestoreStorage', () => {
+  let storage: FirestoreStorage;
+
+  beforeEach(() => {
+    storage = new FirestoreStorage();
+  });
+
+  describe('Transactions', () => {
+    it('createTransaction returns a non-empty unique ID and tracks it', () => {
+      const id1 = storage.createTransaction();
+      const id2 = storage.createTransaction();
+      expect(id1).to.be.a('string').and.not.empty;
+      expect(id2).to.not.equal(id1);
+      expect(storage.hasTransaction(id1)).to.be.true;
+      expect(storage.hasTransaction(id2)).to.be.true;
+    });
+
+    it('endTransaction removes the ID and returns true', () => {
+      const id = storage.createTransaction();
+      expect(storage.endTransaction(id)).to.be.true;
+      expect(storage.hasTransaction(id)).to.be.false;
+    });
+
+    it('endTransaction returns false for unknown ID', () => {
+      expect(storage.endTransaction('does-not-exist')).to.be.false;
+    });
+
+    it('hasTransaction returns false for unknown ID', () => {
+      expect(storage.hasTransaction('nope')).to.be.false;
+    });
+
+    it('clear removes all active transactions', () => {
+      const id = storage.createTransaction();
+      storage.clear();
+      expect(storage.hasTransaction(id)).to.be.false;
     });
   });
 });
