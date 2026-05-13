@@ -14,6 +14,7 @@ import {
   FieldType,
 } from '../types';
 import { handleBatchGetDocuments } from './handlers/batchGetDocuments';
+import { handleBatchWrite } from './handlers/batchWrite';
 import { handleBeginTransaction } from './handlers/beginTransaction';
 import { handleCommitWithProtobufjs } from './handlers/commit';
 import { handleCreateDocument } from './handlers/createDocument';
@@ -25,7 +26,6 @@ import { handleListen } from './handlers/listen';
 import { handleRollback } from './handlers/rollback';
 import { handleRunAggregationQuery } from './handlers/runAggregationQuery';
 import { handleRunQuery } from './handlers/runQuery';
-import { handleUnimplementedUnary } from './handlers/unimplementedUnary';
 import { handleUpdateDocument } from './handlers/updateDocument';
 import { handleWrite } from './handlers/write';
 import { FirestoreStorage } from './storage';
@@ -279,7 +279,7 @@ export class FirestoreServer {
             BatchWrite: (
               call: grpc.ServerUnaryCall<any, any>,
               cb: grpc.sendUnaryData<any>,
-            ) => handleUnimplementedUnary(this, call, cb, 'BatchWrite'),
+            ) => handleBatchWrite(this, call, cb),
 
             BeginTransaction: (
               call: grpc.ServerUnaryCall<any, any>,
