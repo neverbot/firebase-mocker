@@ -125,11 +125,17 @@ const storageServer = await firebaseMocker.startStorageServer({
   projectId: 'my-project',
 });
 
-// Sets FIREBASE_REMOTE_CONFIG_URL_BASE with the right value automatically
+// Sets FIREBASE_REMOTE_CONFIG_URL_BASE with the right value automatically.
+// `initialTemplate` is optional — preload parameters/conditions before tests run.
 const remoteConfigServer = await firebaseMocker.startRemoteConfigServer({
   port: 9299,
   host: 'localhost',
   projectId: 'my-project',
+  initialTemplate: {
+    parameters: {
+      welcome_msg: { defaultValue: { value: 'Hi' }, valueType: 'STRING' },
+    },
+  },
 });
 
 // Initialize Firebase Admin — it will pick up the emulator env vars
@@ -253,49 +259,7 @@ The Remote Config emulator implements the Firebase Remote Config REST API. The F
 | `GET /v1/projects/{projectId}/namespaces/firebase-server/serverRemoteConfig` | No | Returns 501 |
 | `PUT /v1/projects/{projectId}/remoteConfig?validate_only=true` | No | Returns 501 |
 
-ETags are tracked as `etag-{projectId}-{counter}` (counter increments on each successful publish). `If-Match: *` is accepted to force-publish without an etag check. No version history is retained.
-
-## Firebase Remote Config emulator (HTTP)
-
-The Remote Config server implements the Firebase Remote Config REST API. The `firebase-admin` Remote Config client uses it when `FIREBASE_REMOTE_CONFIG_URL_BASE` is set; `startRemoteConfigServer()` sets that env var automatically.
-
-### Implemented endpoints
-
-| Endpoint | Implemented | Notes |
-|---|---|---|
-| `GET /v1/projects/{projectId}/remoteConfig` | Yes | `remoteConfig().getTemplate()` |
-| `PUT /v1/projects/{projectId}/remoteConfig` | Yes | `remoteConfig().publishTemplate(template)` with `If-Match` etag check |
-
-### Not implemented (return 501)
-
-- `POST /v1/projects/{projectId}/remoteConfig:rollback`
-- `GET /v1/projects/{projectId}/remoteConfig:listVersions`
-- `GET /v1/projects/{projectId}/namespaces/firebase-server/serverRemoteConfig`
-- `PUT /v1/projects/{projectId}/remoteConfig?validate_only=true`
-
-### Usage
-
-```typescript
-import { firebaseMocker } from 'firebase-mocker';
-import * as admin from 'firebase-admin';
-
-await firebaseMocker.startRemoteConfigServer({
-  port: 9299,
-  host: 'localhost',
-  projectId: 'demo-project',
-  initialTemplate: {
-    parameters: {
-      welcome_msg: { defaultValue: { value: 'Hi' }, valueType: 'STRING' },
-    },
-  },
-});
-
-admin.initializeApp({ projectId: 'demo-project' });
-const t = await admin.remoteConfig().getTemplate();
-// modify t.parameters and call admin.remoteConfig().publishTemplate(t)
-```
-
-The emulator does not evaluate conditions or maintain version history. ETags are tracked in memory as `etag-{projectId}-{counter}`.
+ETags are tracked as `etag-{projectId}-{counter}` (counter increments on each successful publish). `If-Match: *` is accepted to force-publish without an etag check. The emulator does not evaluate conditions or maintain version history.
 
 ## Technical notes
 
