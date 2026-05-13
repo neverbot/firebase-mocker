@@ -7,6 +7,152 @@ import { FirestoreDocument, FirestoreValue, FieldType } from '../../types';
 import type { FirestoreServer } from '../server';
 import { normalizeGrpcValueToFirestoreValue } from '../utils';
 
+interface NumericRead {
+  kind: 'int' | 'double';
+  value: number;
+}
+
+function readNumeric(value: any): NumericRead | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  if ('integerValue' in value || 'integer_value' in value) {
+    const raw = value.integerValue ?? value.integer_value;
+    const n = parseInt(String(raw), 10);
+    if (Number.isNaN(n)) {
+      return null;
+    }
+    return { kind: 'int', value: n };
+  }
+  if ('doubleValue' in value || 'double_value' in value) {
+    const raw = value.doubleValue ?? value.double_value;
+    const n = Number(raw);
+    if (Number.isNaN(n)) {
+      return null;
+    }
+    return { kind: 'double', value: n };
+  }
+  return null;
+}
+
+function encodeNumeric(kind: 'int' | 'double', value: number): FirestoreValue {
+  if (kind === 'int') {
+    return { integerValue: String(Math.trunc(value)) };
+  }
+  return { doubleValue: value };
+}
+
+function canonicalizeValue(v: any): any {
+  if (v === null || typeof v !== 'object') {
+    return v;
+  }
+  if (Array.isArray(v)) {
+    return v.map(canonicalizeValue);
+  }
+  const out: Record<string, any> = {};
+  const keys = Object.keys(v).sort();
+  for (const key of keys) {
+    if (key === 'valueType' || key === 'value_type') {
+      continue;
+    }
+    out[key] = canonicalizeValue(v[key]);
+  }
+  return out;
+}
+
+function valuesEqual(a: any, b: any): boolean {
+  return (
+    JSON.stringify(canonicalizeValue(a)) ===
+    JSON.stringify(canonicalizeValue(b))
+  );
+}
+
+function getExistingArrayValues(existing: FirestoreValue | undefined): any[] {
+  if (!existing) {
+    return [];
+  }
+  const av = (existing as any).arrayValue;
+  if (av && Array.isArray(av.values)) {
+    return av.values;
+  }
+  return [];
+}
+
+/**
+ * Apply a single FieldTransform to an existing value and return the new
+ * FirestoreValue, or null if the transform is not supported / not numeric/array.
+ * The caller should fall back to its own logic (e.g. serverTimestamp) for null.
+ */
+function applyFieldTransform(
+  transform: any,
+  existingValue: FirestoreValue | undefined,
+): FirestoreValue | null {
+  const numericOp = (
+    operand: any,
+    op: 'inc' | 'max' | 'min',
+  ): FirestoreValue | null => {
+    const operandNum = readNumeric(operand);
+    if (!operandNum) {
+      return null;
+    }
+    const baseNum = readNumeric(existingValue) ?? {
+      kind: 'int' as const,
+      value: 0,
+    };
+    const resultKind: 'int' | 'double' =
+      baseNum.kind === 'double' || operandNum.kind === 'double'
+        ? 'double'
+        : 'int';
+    let resultValue: number;
+    if (op === 'inc') {
+      resultValue = baseNum.value + operandNum.value;
+    } else if (op === 'max') {
+      resultValue = Math.max(baseNum.value, operandNum.value);
+    } else {
+      resultValue = Math.min(baseNum.value, operandNum.value);
+    }
+    return encodeNumeric(resultKind, resultValue);
+  };
+
+  if (transform.increment !== undefined) {
+    return numericOp(transform.increment, 'inc');
+  }
+  if (transform.maximum !== undefined) {
+    return numericOp(transform.maximum, 'max');
+  }
+  if (transform.minimum !== undefined) {
+    return numericOp(transform.minimum, 'min');
+  }
+
+  const append =
+    transform.appendMissingElements ?? transform.append_missing_elements;
+  if (append !== undefined) {
+    const incoming = Array.isArray(append.values) ? append.values : [];
+    const current = getExistingArrayValues(existingValue);
+    const merged = current.map(canonicalizeValue);
+    for (const v of incoming) {
+      const canonical = canonicalizeValue(v);
+      if (!merged.some((m) => valuesEqual(m, canonical))) {
+        merged.push(canonical);
+      }
+    }
+    return { arrayValue: { values: merged } };
+  }
+
+  const removeArr =
+    transform.removeAllFromArray ?? transform.remove_all_from_array;
+  if (removeArr !== undefined) {
+    const toRemove = Array.isArray(removeArr.values) ? removeArr.values : [];
+    const current = getExistingArrayValues(existingValue);
+    const filtered = current
+      .map(canonicalizeValue)
+      .filter((c) => !toRemove.some((r: any) => valuesEqual(r, c)));
+    return { arrayValue: { values: filtered } };
+  }
+
+  return null;
+}
+
 export function handleCommitWithProtobufjs(
   server: FirestoreServer,
   call: grpc.ServerUnaryCall<any, any>,
@@ -262,33 +408,46 @@ export function handleCommit(
           });
         }
 
+        const processTransform = (t: any): void => {
+          if (!t) {
+            return;
+          }
+          const fieldPath =
+            t.fieldPath || t.field_path || t.field || t.Field || '';
+          if (!fieldPath) {
+            return;
+          }
+          const serverValue =
+            t.setToServerValue || t.set_to_server_value || t.serverValue;
+          if (
+            serverValue === 'REQUEST_TIME' ||
+            serverValue === 1 ||
+            serverValue === 'REQUEST_TIME_UNSPECIFIED'
+          ) {
+            const iso = now.toISOString();
+            fields[fieldPath] = { timestampValue: iso };
+            const detectedType = server.detectFieldType(fields[fieldPath]);
+            if (detectedType) {
+              fieldTypes[fieldPath] = detectedType;
+            }
+            return;
+          }
+
+          const existingValue = existingDoc?.fields?.[fieldPath];
+          const transformed = applyFieldTransform(t, existingValue);
+          if (transformed !== null) {
+            fields[fieldPath] = transformed;
+            const detectedType = server.detectFieldType(transformed);
+            if (detectedType) {
+              fieldTypes[fieldPath] = detectedType;
+            }
+          }
+        };
+
         const updateTransforms =
           write.updateTransforms || write.update_transforms;
         if (Array.isArray(updateTransforms)) {
-          updateTransforms.forEach((t: any) => {
-            if (!t) {
-              return;
-            }
-            const fieldPath =
-              t.fieldPath || t.field_path || t.field || t.Field || '';
-            if (!fieldPath) {
-              return;
-            }
-            const serverValue =
-              t.setToServerValue || t.set_to_server_value || t.serverValue;
-            if (
-              serverValue === 'REQUEST_TIME' ||
-              serverValue === 1 ||
-              serverValue === 'REQUEST_TIME_UNSPECIFIED'
-            ) {
-              const iso = now.toISOString();
-              fields[fieldPath] = { timestampValue: iso };
-              const detectedType = server.detectFieldType(fields[fieldPath]);
-              if (detectedType) {
-                fieldTypes[fieldPath] = detectedType;
-              }
-            }
-          });
+          updateTransforms.forEach(processTransform);
         }
 
         const transform = write.transform;
@@ -296,30 +455,7 @@ export function handleCommit(
           transform &&
           (transform.fieldTransforms || transform.field_transforms);
         if (Array.isArray(fieldTransforms)) {
-          fieldTransforms.forEach((t: any) => {
-            if (!t) {
-              return;
-            }
-            const fieldPath =
-              t.fieldPath || t.field_path || t.field || t.Field || '';
-            if (!fieldPath) {
-              return;
-            }
-            const serverValue =
-              t.setToServerValue || t.set_to_server_value || t.serverValue;
-            if (
-              serverValue === 'REQUEST_TIME' ||
-              serverValue === 1 ||
-              serverValue === 'REQUEST_TIME_UNSPECIFIED'
-            ) {
-              const iso = now.toISOString();
-              fields[fieldPath] = { timestampValue: iso };
-              const detectedType = server.detectFieldType(fields[fieldPath]);
-              if (detectedType) {
-                fieldTypes[fieldPath] = detectedType;
-              }
-            }
-          });
+          fieldTransforms.forEach(processTransform);
         }
 
         let finalFields = fields;
