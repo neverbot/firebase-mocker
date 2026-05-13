@@ -11,6 +11,7 @@ Currently emulated:
 - **Firestore** — gRPC server (default port `3333`), sets `FIRESTORE_EMULATOR_HOST`.
 - **Firebase Auth** — HTTP server implementing the Identity Toolkit REST API (default port `9099`), sets `FIREBASE_AUTH_EMULATOR_HOST`.
 - **Firebase Storage** — HTTP server implementing the Google Cloud Storage JSON API (default port `9199`), sets `FIREBASE_STORAGE_EMULATOR_HOST`.
+- **Firebase Remote Config** — HTTP server implementing the Remote Config REST API (default port `9299`), sets `FIREBASE_REMOTE_CONFIG_URL_BASE`.
 
 Each server can be started independently or in any combination. State is kept in memory; nothing is persisted to disk.
 
@@ -24,6 +25,8 @@ The package exposes a `firebaseMocker` object from `src/index.ts`:
 - `firebaseMocker.stopAuthServer()` — stop it.
 - `firebaseMocker.startStorageServer({ port, host, projectId })` — start the Storage HTTP emulator. Sets `FIREBASE_STORAGE_EMULATOR_HOST` before returning.
 - `firebaseMocker.stopStorageServer()` — stop it.
+- `firebaseMocker.startRemoteConfigServer({ port, host, projectId, initialTemplate? })` — start the Remote Config HTTP emulator. Sets `FIREBASE_REMOTE_CONFIG_URL_BASE` before returning.
+- `firebaseMocker.stopRemoteConfigServer()` — stop it (restores previous `FIREBASE_REMOTE_CONFIG_URL_BASE`).
 - `addConfig({ logs: { verboseGrpcLogs, verboseAuthLogs, verboseStorageLogs, onUnimplemented } })` — configure logging and the policy for unimplemented RPCs (`'warn'` default, or `'throw'` for strict CI).
 
 All `start*Server` methods must be called **before** `admin.initializeApp(...)` so the env vars are picked up by the Admin SDK.
@@ -35,9 +38,10 @@ All `start*Server` methods must be called **before** `admin.initializeApp(...)` 
   - `src/firestore/` — Firestore gRPC server, handlers, in-memory storage, query/value conversion
   - `src/firebase-auth/` — Firebase Auth HTTP server (Identity Toolkit endpoints) and in-memory user store
   - `src/firebase-storage/` — Firebase Storage HTTP server (GCS JSON API) and in-memory object store
+  - `src/firebase-remote-config/` — Firebase Remote Config HTTP server and in-memory template store
   - `src/config.ts`, `src/logger.ts`, `src/types.ts` — shared config, logging, types
 - `proto/v1.json` — Firestore proto definitions, copied from `@google-cloud/firestore/build/protos/v1.json`
-- `test/` — Mocha + Chai test suites (`firestore.spec.ts`, `firestore-server.spec.ts`, `firestore-utils.spec.ts`, `firebase-auth.spec.ts`, `firebase-storage.spec.ts`, plus `firestore/`, `firebase-auth/`, and `firebase-storage/` helpers and `_setup.ts`)
+- `test/` — Mocha + Chai test suites (`firestore.spec.ts`, `firestore-server.spec.ts`, `firestore-utils.spec.ts`, `firebase-auth.spec.ts`, `firebase-storage.spec.ts`, `firebase-remote-config.spec.ts`, plus `firestore/`, `firebase-auth/`, `firebase-storage/`, and `firebase-remote-config/` helpers and `_setup.ts`)
 - `scripts/` — helper scripts
 - `dist/` — build output (`tsc`)
 - `readme.md` — user-facing documentation
@@ -130,6 +134,30 @@ Files are stored as `Buffer` objects in a `Map<bucket, Map<objectPath, { data, m
 
 `@google-cloud/storage`'s `file.getSignedUrl()` signs URLs locally using a service account private key, which the emulator does not have. `startStorageServer()` monkey-patches `File.prototype.getSignedUrl` to return a URL pointing to the emulator's existing `/b/:bucket/o/:file?alt=media` route. The patch is restored by `stopStorageServer()`. See `src/firebase-storage/sign-url-patch.ts`.
 
+## Firebase Remote Config emulator (HTTP)
+
+The Remote Config server implements a subset of the Firebase Remote Config REST API in memory. The Firebase Admin Remote Config client uses it when `FIREBASE_REMOTE_CONFIG_URL_BASE` is set (the SDK reads `process.env.FIREBASE_REMOTE_CONFIG_URL_BASE` and defaults to `https://firebaseremoteconfig.googleapis.com`).
+
+Implemented endpoints:
+
+- `GET /v1/projects/:projectId/remoteConfig` — `remoteConfig().getTemplate()`, returns body + `ETag` header
+- `PUT /v1/projects/:projectId/remoteConfig` — `remoteConfig().publishTemplate(template)` with required `If-Match` header; returns 412 on mismatch, accepts `If-Match: *` to force
+
+Out-of-scope endpoints (return 501 + warning via `logs.onUnimplemented`):
+
+- `POST /v1/projects/:projectId/remoteConfig:rollback`
+- `GET /v1/projects/:projectId/remoteConfig:listVersions`
+- `GET /v1/projects/:projectId/namespaces/firebase-server/serverRemoteConfig`
+- `PUT /v1/projects/:projectId/remoteConfig?validate_only=true`
+
+### Etag strategy
+
+Etags are strings of the form `etag-{projectId}-{counter}` where `counter` starts at 0 (or 1 if `initialTemplate` is provided) and increments on each successful publish. `version.versionNumber` mirrors the counter. No version history is retained; each publish overwrites the previous state.
+
+### Scope
+
+Designed for the `getTemplate()` + `publishTemplate(template)` flow only. There is no condition evaluation, no rollback, no version listing, no validateOnly support. Tests that need those features must run against production or the official Firebase emulator.
+
 ## Important technical notes
 
 ### Proto source
@@ -198,3 +226,4 @@ The emulator must work with an **unmodified** `firebase-admin`. Any compatibilit
 - Security rules emulation
 - Additional Identity Toolkit endpoints (custom tokens, email links, etc.)
 - Storage: copy/rewrite, compose objects
+- Remote Config: `validate_only` dry-run, `rollback`, `listVersions`, server-side condition evaluation
