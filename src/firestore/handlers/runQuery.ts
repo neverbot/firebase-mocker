@@ -205,12 +205,14 @@ export function handleRunQuery(
       let documents;
       let kindless = false;
       if (allDescendants) {
-        // Kindless query (used by recursiveDelete): the SDK encodes the
-        // scope as a `__name__` range filter rather than `from.collectionId`.
-        // Detect it, extract the root collection segment from the filter
-        // value, and run a prefix scan over the whole database.
-        kindless = whereHasNameFilter(where);
-        const kindlessRoot = kindless
+        // Kindless query (`firestore.recursiveDelete`): the SDK omits
+        // `from.collectionId`. For a CollectionReference target the scope is
+        // encoded as a `__name__` range filter on the where clause; for a
+        // DocumentReference target the scope is `request.parent` (the doc
+        // path) and there is no where clause at all.
+        const hasNameRangeFilter = whereHasNameFilter(where);
+        kindless = hasNameRangeFilter || !collectionId;
+        const kindlessRoot = hasNameRangeFilter
           ? extractKindlessRootCollection(where)
           : null;
         const scanPrefix = pathAfterDocuments
