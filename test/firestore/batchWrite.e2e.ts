@@ -65,10 +65,7 @@ describe('Firestore BatchWrite (e2e)', () => {
     });
   });
 
-  // firestore.recursiveDelete() relies on "kindless all descendants" queries
-  // (filtering by __name__ across subcollections) which RunQuery does not yet
-  // implement. BulkWriter itself works — the gap is in the descendant query.
-  describe.skip('recursiveDelete (requires kindless queries — not implemented)', () => {
+  describe('recursiveDelete', () => {
     it('deletes a tree of docs and subcollection docs (9 total)', async function () {
       const root = db.collection('rd_root_' + Date.now());
 

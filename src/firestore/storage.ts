@@ -136,6 +136,30 @@ export class FirestoreStorage {
   }
 
   /**
+   * Return every document in the database paired with its full collection path.
+   * Used by RunQuery for `allDescendants` queries (collectionGroup) and the
+   * "kindless" recursive-delete query, which need to walk the whole hierarchy
+   * and filter by either leaf collection id or document-name prefix.
+   *
+   * The collection path is the same key used by the internal storage map: the
+   * segments between `/documents/` and the docId (e.g. `events/e1/users`).
+   */
+  listAllDocumentsWithPath(
+    projectId: string,
+    databaseId: string,
+  ): { collectionPath: string; doc: FirestoreDocument }[] {
+    const database = this.getDatabase(projectId, databaseId);
+    const results: { collectionPath: string; doc: FirestoreDocument }[] = [];
+    for (const collectionPath of Object.keys(database)) {
+      const collection = database[collectionPath];
+      for (const docId of Object.keys(collection)) {
+        results.push({ collectionPath, doc: collection[docId] });
+      }
+    }
+    return results;
+  }
+
+  /**
    * List collection IDs under a parent path.
    * @param projectId Project ID
    * @param databaseId Database ID (e.g. '(default)')

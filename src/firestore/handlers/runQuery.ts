@@ -7,6 +7,80 @@ import * as grpc from '@grpc/grpc-js';
 import type { FirestoreServer } from '../server';
 import { buildDocumentPath, toTimestamp, toGrpcFields } from '../utils';
 
+/**
+ * Detect whether a `where` clause references the implicit `__name__` field.
+ * When present we treat the query as a "kindless all descendants" query (used
+ * by `firestore.recursiveDelete()`) and skip the leaf-collection filter — the
+ * existing fieldFilter logic handles the name range.
+ */
+/**
+ * Walk the `where` clause and return the first collection-segment found in a
+ * `__name__` reference value. Used to derive the scan prefix for kindless
+ * queries where the SDK omits `from.collectionId` and encodes the scope in
+ * the filter values (e.g. `projects/.../documents/events/__id-MIN__`).
+ */
+function extractKindlessRootCollection(where: any): string | null {
+  if (!where || typeof where !== 'object') {
+    return null;
+  }
+  const fieldFilter = where.fieldFilter ?? where.field_filter;
+  if (fieldFilter) {
+    const path =
+      fieldFilter.field?.fieldPath ??
+      fieldFilter.field?.field_path ??
+      fieldFilter.Field?.fieldPath ??
+      fieldFilter.Field?.field_path;
+    if (path === '__name__') {
+      const val = fieldFilter.value;
+      const ref = val?.referenceValue ?? val?.reference_value;
+      if (typeof ref === 'string') {
+        const match = /\/documents\/([^/]+)/.exec(ref);
+        if (match) {
+          return match[1];
+        }
+      }
+    }
+  }
+  const composite = where.compositeFilter ?? where.composite_filter;
+  if (composite) {
+    const filters = composite.filters ?? [];
+    if (Array.isArray(filters)) {
+      for (const f of filters) {
+        const found = extractKindlessRootCollection(f);
+        if (found) {
+          return found;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function whereHasNameFilter(where: any): boolean {
+  if (!where || typeof where !== 'object') {
+    return false;
+  }
+  const fieldFilter = where.fieldFilter ?? where.field_filter;
+  if (fieldFilter) {
+    const fieldPath =
+      fieldFilter.field?.fieldPath ??
+      fieldFilter.field?.field_path ??
+      fieldFilter.Field?.fieldPath ??
+      fieldFilter.Field?.field_path;
+    if (fieldPath === '__name__') {
+      return true;
+    }
+  }
+  const composite = where.compositeFilter ?? where.composite_filter;
+  if (composite) {
+    const filters = composite.filters ?? [];
+    if (Array.isArray(filters)) {
+      return filters.some((f) => whereHasNameFilter(f));
+    }
+  }
+  return false;
+}
+
 export function handleRunQuery(
   server: FirestoreServer,
   call: grpc.ServerWritableStream<any, any>,
@@ -73,26 +147,28 @@ export function handleRunQuery(
           : '(default)';
 
       let collectionId = '';
+      let allDescendants = false;
+      const readFromSelector = (sel: any): void => {
+        if (!sel) {
+          return;
+        }
+        collectionId = sel.collection_id || sel.collectionId || collectionId;
+        const desc = sel.all_descendants ?? sel.allDescendants;
+        if (desc === true) {
+          allDescendants = true;
+        }
+      };
       if (from) {
-        if (from.collection_id) {
-          collectionId = from.collection_id;
-        } else if (from.collectionId) {
-          collectionId = from.collectionId;
+        if (Array.isArray(from)) {
+          if (from.length > 0) {
+            readFromSelector(from[0]);
+          }
+        } else if (from.collection_id || from.collectionId) {
+          readFromSelector(from);
         } else if (typeof from === 'object') {
           const keys = Object.keys(from);
           if (keys.length > 0) {
-            const firstKey = keys[0];
-            const firstFrom = from[firstKey];
-            if (firstFrom) {
-              collectionId =
-                firstFrom.collection_id || firstFrom.collectionId || '';
-            }
-          }
-        } else if (Array.isArray(from) && from.length > 0) {
-          const firstFrom = from[0];
-          if (firstFrom) {
-            collectionId =
-              firstFrom.collection_id || firstFrom.collectionId || '';
+            readFromSelector(from[keys[0]]);
           }
         }
       }
@@ -126,16 +202,52 @@ export function handleRunQuery(
         `RunQuery DEBUG: Querying collection with projectId=${projectId}, databaseId=${databaseId}, collectionPath=${collectionPath}`,
       );
 
-      let documents = server
-        .getStorage()
-        .listDocuments(projectId, databaseId, collectionPath);
+      let documents;
+      let kindless = false;
+      if (allDescendants) {
+        // Kindless query (used by recursiveDelete): the SDK encodes the
+        // scope as a `__name__` range filter rather than `from.collectionId`.
+        // Detect it, extract the root collection segment from the filter
+        // value, and run a prefix scan over the whole database.
+        kindless = whereHasNameFilter(where);
+        const kindlessRoot = kindless
+          ? extractKindlessRootCollection(where)
+          : null;
+        const scanPrefix = pathAfterDocuments
+          ? `${pathAfterDocuments}/`
+          : kindlessRoot
+            ? `${kindlessRoot}/`
+            : '';
+        const all = server
+          .getStorage()
+          .listAllDocumentsWithPath(projectId, databaseId);
+        documents = all
+          .filter(({ collectionPath: cp }) => {
+            if (!scanPrefix) {
+              return true;
+            }
+            return cp === scanPrefix.slice(0, -1) || cp.startsWith(scanPrefix);
+          })
+          .filter(({ collectionPath: cp }) => {
+            if (kindless) {
+              return true;
+            }
+            const segments = cp.split('/');
+            return segments[segments.length - 1] === collectionId;
+          })
+          .map(({ doc }) => doc);
+      } else {
+        documents = server
+          .getStorage()
+          .listDocuments(projectId, databaseId, collectionPath);
+      }
 
       server.logger.log(
         'grpc',
         `RunQuery DEBUG: Found ${documents.length} documents in collection before filtering`,
       );
 
-      if (where) {
+      if (where && !kindless) {
         documents = server.applyQueryFilters(documents, where);
         server.logger.log(
           'grpc',
@@ -242,13 +354,23 @@ export function handleRunQuery(
               },
             ]
           : documents.map((doc) => {
-              const docId = (doc.name && doc.name.split('/').pop()) || '';
-              const documentPath = buildDocumentPath(
-                projectId,
-                databaseId,
-                collectionPath,
-                docId,
-              );
+              const storedName = doc.name ?? '';
+              let documentPath: string;
+              if (storedName.includes('/documents/')) {
+                // For allDescendants queries the doc lives in a different
+                // collection than the request's `from`, so preserve the path
+                // stored at write time instead of rebuilding it from the
+                // request's collectionPath.
+                documentPath = storedName;
+              } else {
+                const docId = storedName.split('/').pop() || '';
+                documentPath = buildDocumentPath(
+                  projectId,
+                  databaseId,
+                  collectionPath,
+                  docId,
+                );
+              }
               const reconstructedFields = server.reconstructDocumentFields(doc);
               const defaultTimestamp = toTimestamp(now);
               return {
