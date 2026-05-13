@@ -195,7 +195,7 @@ The Firestore emulator implements these gRPC methods:
 |--------|-----------|---------------------------------|
 | `GetDocument` | Yes | Single document fetch (`doc(id).get()`) |
 | `ListDocuments` | Yes | List documents in a collection |
-| `RunQuery` | Yes | Queries (`collection.get()`, `where()` field/composite/unary, `orderBy()` ASC/DESC including `__name__`, `limit()`, `offset()`, and cursor pagination `startAt()` / `startAfter()` / `endAt()` / `endBefore()`) |
+| `RunQuery` | Yes | Queries (`collection.get()`, `where()` field/composite/unary, `orderBy()` ASC/DESC including `__name__`, `limit()`, `offset()`, cursor pagination `startAt()` / `startAfter()` / `endAt()` / `endBefore()`, and `allDescendants` for `collectionGroup()` and `recursiveDelete()`) |
 | `RunAggregationQuery` | Yes | Aggregation queries, e.g. `count().get()` (COUNT supported; sum/avg return 0) |
 | `CreateDocument` | Yes | Create document with server-generated ID |
 | `UpdateDocument` | Yes | Update existing document |

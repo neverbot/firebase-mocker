@@ -105,13 +105,25 @@ The `Commit` handler inspects both `write.updateTransforms` (modern SDK path) an
 
 Comparison of array elements goes through `canonicalizeValue()` because the SDK encodes incoming Values with an extra `valueType` field that the in-memory store does not carry; without stripping it, `arrayUnion` would re-append duplicates. Stored values are canonicalized too so subsequent reads stay stable.
 
+### `allDescendants` queries (collectionGroup, recursiveDelete)
+
+`RunQuery` honors `from[].all_descendants = true`. Two flavors are detected:
+
+- **collectionGroup** (`db.collectionGroup('X').get()`): the `from` selector carries `collectionId = 'X'` with `allDescendants = true`. The handler walks the whole database via `FirestoreStorage.listAllDocumentsWithPath()` and keeps docs whose stored `collectionPath` has `X` as its last segment (the leaf collection).
+
+- **Kindless** (used by `firestore.recursiveDelete()`): the SDK omits `collectionId` and encodes the scope as a `__name__` range filter (`>= path/MIN_ID` and `< path\0/MIN_ID`). Because these filter values reference full document paths with a zero-byte separator, the generic field-filter pipeline can't apply them correctly. The handler detects this shape (`whereHasNameFilter`), extracts the root collection segment from the filter value (`extractKindlessRootCollection`), and turns it into a path-prefix scan; the original `where` clause is skipped so the prefix scan does all the scoping.
+
+Both flavors return documents using their stored `name` (full path), since `allDescendants` queries match docs across many collections — the response can't be rebuilt from the request's single `collectionPath`.
+
+The storage layer is unchanged: the existing flat-keyed map `database[collectionPath]` already encodes hierarchy as path prefixes, so descendant lookups are a single linear scan over `Object.keys`. No secondary index is maintained.
+
 ### BatchWrite
 
 `BatchWrite` is implemented in `src/firestore/handlers/batchWrite.ts` and powers `db.bulkWriter()`. Each input Write is fed through `handleCommit` individually (via a synthetic single-write call object), and the per-write outcome is translated into a `{writeResults, status}` response. Notes:
 
 - Response uses **camelCase** (`writeResults`, `updateTime`) because the SDK's `BulkWriter` reads `response.writeResults[i].updateTime` directly. This contrasts with `CommitResponse` which uses snake_case — see the field naming notes in this file.
 - A failed Write becomes `{writeResult: {}, status: {code: <grpc>, message}}` in the same index; the rest still succeed. The batch as a whole is non-atomic by design.
-- `firestore.recursiveDelete()` uses BulkWriter for the deletes, but relies on a "kindless all-descendants" query (`Query.forKindlessAllDescendants`) that walks subcollections by `__name__` ranges. `RunQuery` does not yet implement that variant, so the recursive-delete test in `test/firestore/batchWrite.e2e.ts` is `describe.skip`'d.
+- `firestore.recursiveDelete()` works end-to-end: the kindless descendant query is handled by `RunQuery` (see the `allDescendants` section above) and the deletes flow through `BatchWrite`.
 
 ### Transactions (Level 1 semantics)
 
