@@ -67,6 +67,76 @@ function valuesEqual(a: any, b: any): boolean {
   );
 }
 
+/**
+ * Walk a dotted path through a Firestore `fields` map and return the leaf
+ * Value, or undefined if any intermediate segment is missing or not a map.
+ */
+function getValueAtPath(
+  fields: Record<string, FirestoreValue>,
+  path: string,
+): FirestoreValue | undefined {
+  const parts = path.split('.');
+  let currentFields: Record<string, FirestoreValue> | undefined = fields;
+  for (let i = 0; i < parts.length; i++) {
+    if (!currentFields || !(parts[i] in currentFields)) {
+      return undefined;
+    }
+    const value: FirestoreValue = currentFields[parts[i]];
+    if (i === parts.length - 1) {
+      return value;
+    }
+    const mapVal: any = (value as any).mapValue;
+    currentFields = mapVal?.fields as
+      | Record<string, FirestoreValue>
+      | undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Set a Firestore Value at a dotted path inside the given `fields` map,
+ * creating intermediate mapValue containers as needed. Mutates `fields`.
+ */
+function setValueAtPath(
+  fields: Record<string, FirestoreValue>,
+  path: string,
+  value: FirestoreValue,
+): void {
+  const parts = path.split('.');
+  let currentFields = fields;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = parts[i];
+    const existing = currentFields[part] as any;
+    if (!existing || !existing.mapValue || !existing.mapValue.fields) {
+      currentFields[part] = { mapValue: { fields: {} } } as FirestoreValue;
+    }
+    currentFields = (currentFields[part] as any).mapValue.fields;
+  }
+  currentFields[parts[parts.length - 1]] = value;
+}
+
+/**
+ * Remove the leaf at a dotted path inside the given `fields` map. Mutates
+ * `fields`. No-op if any intermediate segment is missing.
+ */
+function deleteValueAtPath(
+  fields: Record<string, FirestoreValue>,
+  path: string,
+): void {
+  const parts = path.split('.');
+  let currentFields: Record<string, FirestoreValue> | undefined = fields;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const next = currentFields?.[parts[i]] as any;
+    if (!next || !next.mapValue || !next.mapValue.fields) {
+      return;
+    }
+    currentFields = next.mapValue.fields;
+  }
+  if (currentFields) {
+    delete currentFields[parts[parts.length - 1]];
+  }
+}
+
 function getExistingArrayValues(existing: FirestoreValue | undefined): any[] {
   if (!existing) {
     return [];
@@ -464,10 +534,33 @@ export function handleCommit(
           const fieldPaths: string[] =
             mask.field_paths ?? mask.fieldPaths ?? [];
           const existingFields = existingDoc.fields || {};
-          finalFields = { ...existingFields, ...fields };
-          for (const path of fieldPaths) {
-            if (!(path in fields)) {
-              delete finalFields[path];
+          finalFields = JSON.parse(JSON.stringify(existingFields)) as Record<
+            string,
+            FirestoreValue
+          >;
+          const hasDottedPath = fieldPaths.some((p) => p.includes('.'));
+          if (hasDottedPath) {
+            for (const path of fieldPaths) {
+              const incomingValue = getValueAtPath(fields, path);
+              if (incomingValue !== undefined) {
+                setValueAtPath(finalFields, path, incomingValue);
+              } else {
+                deleteValueAtPath(finalFields, path);
+              }
+            }
+            for (const key of Object.keys(fields)) {
+              if (
+                !fieldPaths.some((p) => p === key || p.startsWith(key + '.'))
+              ) {
+                finalFields[key] = fields[key];
+              }
+            }
+          } else {
+            finalFields = { ...existingFields, ...fields };
+            for (const path of fieldPaths) {
+              if (!(path in fields)) {
+                delete finalFields[path];
+              }
             }
           }
         } else if (existingDoc && !write.updateMask) {
