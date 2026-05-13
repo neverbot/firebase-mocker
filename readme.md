@@ -235,7 +235,8 @@ The Auth emulator exposes the Identity Toolkit REST API under `/identitytoolkit.
 | `accounts:delete` | Yes | `deleteUser(uid)` |
 | `accounts:update` | Yes | `updateUser(uid, { ... })` |
 | `accounts:sendOobCode` | Yes | `generatePasswordResetLink(email)` (returns URL with extractable `oobCode`) |
-| Other Identity Toolkit endpoints | No | Return 404 (e.g. custom token sign-in, email link, etc.) |
+| `accounts:signInWithCustomToken` | Yes | Exchanges a custom token (from `auth.createCustomToken(uid)`) for an `idToken` that `verifyIdToken()` accepts. Auto-creates the user if missing. |
+| Other Identity Toolkit endpoints | No | Return 404 (e.g. email/password sign-in, phone sign-in, IDP, email link, etc.) |
 
 ### Firebase Storage (HTTP)
 

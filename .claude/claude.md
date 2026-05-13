@@ -148,8 +148,9 @@ Implemented endpoints:
 - `accounts:delete` — `deleteUser(uid)`
 - `accounts:update` — `updateUser(uid, { ... })`
 - `accounts:sendOobCode` — `generatePasswordResetLink(email)` (returns `{email, oobCode, oobLink}`)
+- `accounts:signInWithCustomToken` — decodes the JWT (no signature check), extracts `uid`/`sub` (and optional `claims`), mints an emulator idToken via `generateTestIdToken`, auto-creates the user if missing. Returns `{idToken, refreshToken, expiresIn, localId, isNewUser}`.
 
-Other Identity Toolkit endpoints (custom token sign-in, email link confirmation, etc.) return 404.
+Other Identity Toolkit endpoints (email/password sign-in, phone sign-in, IDP, email link confirmation, etc.) return 404.
 
 ### Test ID token helper
 
