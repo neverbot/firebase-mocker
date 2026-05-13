@@ -1,30 +1,21 @@
 import { expect } from 'chai';
 import { config } from '../../src/config';
-import { RemoteConfigServer } from '../../src/firebase-remote-config/server';
 
-const PORT = 19297;
+const PORT = 9299;
+const PROJECT_ID = 'test-project';
 
 describe('Remote Config unimplemented endpoints', () => {
-  let server: RemoteConfigServer;
-
-  beforeEach(async () => {
+  beforeEach(function () {
     config.addConfig({ logs: { onUnimplemented: 'warn' } });
-    server = new RemoteConfigServer({
-      port: PORT,
-      host: 'localhost',
-      projectId: 'demo-project',
-    });
-    await server.start();
   });
 
-  afterEach(async () => {
-    await server.stop();
+  afterEach(function () {
     config.addConfig({ logs: { onUnimplemented: 'warn' } });
   });
 
   it('returns 501 for rollback', async () => {
     const res = await fetch(
-      `http://localhost:${PORT}/v1/projects/demo-project/remoteConfig:rollback`,
+      `http://localhost:${PORT}/v1/projects/${PROJECT_ID}/remoteConfig:rollback`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -38,14 +29,14 @@ describe('Remote Config unimplemented endpoints', () => {
 
   it('returns 501 for listVersions', async () => {
     const res = await fetch(
-      `http://localhost:${PORT}/v1/projects/demo-project/remoteConfig:listVersions`,
+      `http://localhost:${PORT}/v1/projects/${PROJECT_ID}/remoteConfig:listVersions`,
     );
     expect(res.status).to.equal(501);
   });
 
   it('returns 501 for namespaces/firebase-server/serverRemoteConfig', async () => {
     const res = await fetch(
-      `http://localhost:${PORT}/v1/projects/demo-project/namespaces/firebase-server/serverRemoteConfig`,
+      `http://localhost:${PORT}/v1/projects/${PROJECT_ID}/namespaces/firebase-server/serverRemoteConfig`,
     );
     expect(res.status).to.equal(501);
   });
@@ -53,7 +44,7 @@ describe('Remote Config unimplemented endpoints', () => {
   it('throws (server-side) when onUnimplemented=throw and unimplemented endpoint is hit', async () => {
     config.addConfig({ logs: { onUnimplemented: 'throw' } });
     const res = await fetch(
-      `http://localhost:${PORT}/v1/projects/demo-project/remoteConfig:rollback`,
+      `http://localhost:${PORT}/v1/projects/${PROJECT_ID}/remoteConfig:rollback`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

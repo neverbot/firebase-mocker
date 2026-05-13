@@ -5,6 +5,7 @@
 
 import * as admin from 'firebase-admin';
 import { AuthServer } from '../src/firebase-auth';
+import { RemoteConfigServer } from '../src/firebase-remote-config';
 import { StorageServer } from '../src/firebase-storage';
 import { FirestoreServer } from '../src/firestore';
 import { firebaseMocker } from '../src/index';
@@ -14,6 +15,7 @@ let firebaseApp: admin.app.App | undefined = undefined;
 let firestoreServer: FirestoreServer | null = null;
 let authServer: AuthServer | null = null;
 let storageServer: StorageServer | null = null;
+let remoteConfigServer: RemoteConfigServer | null = null;
 let isInitialized = false;
 let isTearingDown = false;
 
@@ -44,6 +46,13 @@ export async function setup(): Promise<void> {
   // Start the Firebase Storage emulator (HTTP)
   storageServer = await firebaseMocker.startStorageServer({
     port: 9199,
+    host: 'localhost',
+    projectId: 'test-project',
+  });
+
+  // Start the Firebase Remote Config emulator (HTTP)
+  remoteConfigServer = await firebaseMocker.startRemoteConfigServer({
+    port: 9299,
     host: 'localhost',
     projectId: 'test-project',
   });
@@ -94,6 +103,12 @@ export async function teardown(): Promise<void> {
   }
 
   isTearingDown = true;
+
+  if (remoteConfigServer) {
+    await firebaseMocker.stopRemoteConfigServer();
+    remoteConfigServer = null;
+    console.log('[SERVER] Remote Config server stopped');
+  }
 
   if (storageServer) {
     await firebaseMocker.stopStorageServer();
@@ -199,6 +214,25 @@ export function getStorageServer(): StorageServer {
  */
 export function getStorageStorage() {
   return getStorageServer().getStorage();
+}
+
+/**
+ * Get the Remote Config emulator server instance
+ */
+export function getRemoteConfigServer(): RemoteConfigServer {
+  if (!remoteConfigServer) {
+    throw new Error(
+      'Remote Config server not initialized. Call setup() first.',
+    );
+  }
+  return remoteConfigServer;
+}
+
+/**
+ * Get the Remote Config emulator storage instance (for direct access to internal storage)
+ */
+export function getRemoteConfigStorage() {
+  return getRemoteConfigServer().getStorage();
 }
 
 /**
