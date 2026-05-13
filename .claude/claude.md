@@ -68,7 +68,7 @@ The Firestore server uses **gRPC** (not REST), loaded from `proto/v1.json` (the 
 - `CreateDocument`
 - `UpdateDocument`
 - `DeleteDocument`
-- `Commit` (used by `set()`, `add()`, `update()`, `delete()`)
+- `Commit` (used by `set()`, `add()`, `update()`, `delete()`, plus `FieldValue` transforms — see below)
 - `BatchGetDocuments` (used by `doc.get()`)
 - `Listen` (real-time listeners, streaming)
 - `Write` (write stream used by client SDK)
@@ -81,6 +81,18 @@ The Firestore server uses **gRPC** (not REST), loaded from `proto/v1.json` (the 
 - `BatchWrite`
 
 When an unimplemented RPC is called, the server logs a clear warning to stderr (or throws if `logs.onUnimplemented === 'throw'`).
+
+### `FieldValue` transforms
+
+The `Commit` handler inspects both `write.updateTransforms` (modern SDK path) and `write.transform.fieldTransforms` (legacy) and applies these sentinels alongside the regular `update.fields` payload:
+
+- `serverTimestamp()` — written as `timestampValue` using `new Date().toISOString()`.
+- `increment(n)` — adds `n` to `existingDoc.fields[fieldPath]` (treats missing/non-numeric as 0). Result kind is `integerValue` only when both base and operand are int; any `doubleValue` yields a `doubleValue`. Implemented in `applyFieldTransform()` inside `src/firestore/handlers/commit.ts`.
+- `maximum` / `minimum` — same numeric logic as `increment`, using `Math.max` / `Math.min`.
+- `arrayUnion(...values)` (proto: `appendMissingElements`) — appends values not already present using deep equality after stripping the protobufjs `valueType` discriminator (`canonicalizeValue()`).
+- `arrayRemove(...values)` (proto: `removeAllFromArray`) — removes every occurrence matching one of the given values.
+
+Comparison of array elements goes through `canonicalizeValue()` because the SDK encodes incoming Values with an extra `valueType` field that the in-memory store does not carry; without stripping it, `arrayUnion` would re-append duplicates. Stored values are canonicalized too so subsequent reads stay stable.
 
 ### Transactions (Level 1 semantics)
 
