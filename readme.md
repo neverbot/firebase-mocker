@@ -200,7 +200,7 @@ The Firestore emulator implements these gRPC methods:
 | `CreateDocument` | Yes | Create document with server-generated ID |
 | `UpdateDocument` | Yes | Update existing document |
 | `DeleteDocument` | Yes | Delete document |
-| `Commit` | Yes | Writes: `set()`, `add()`, `update()`, `delete()` |
+| `Commit` | Yes | Writes: `set()`, `add()`, `update()`, `delete()`, plus `FieldValue` transforms (see below) |
 | `BatchGetDocuments` | Yes | Batched reads, e.g. `doc(id).get()` |
 | `Listen` | Yes | Real-time listeners (streaming) |
 | `Write` | Yes | Write stream (used by client SDK) |
@@ -208,6 +208,15 @@ The Firestore emulator implements these gRPC methods:
 | `BatchWrite` | No | Returns UNIMPLEMENTED; see `onUnimplemented` in Configuration |
 | `BeginTransaction` | Yes (Level 1) | `db.runTransaction()` — atomic commit, no conflict detection (see note below) |
 | `Rollback` | Yes | `db.runTransaction()` rollback when callback throws |
+
+**Note on `FieldValue` transforms:** The `Commit` handler applies the following sentinel transforms encoded by the Admin SDK on `set()` / `update()`:
+
+- `FieldValue.serverTimestamp()` — replaced with the server's current timestamp.
+- `FieldValue.increment(n)` — adds `n` to the existing numeric field (missing field is treated as 0). Result is `int` only when both operands are `int`; any `double` operand yields a `double`.
+- `FieldValue.arrayUnion(...values)` — appends elements not already present (deep equality).
+- `FieldValue.arrayRemove(...values)` — removes all occurrences of the given values.
+- `FieldValue.delete()` — supported via the standard `updateMask` removal path.
+- Numeric `maximum` / `minimum` transforms (used internally by some SDKs) are also applied.
 
 **Note on transactions (Level 1 semantics):** `db.runTransaction()` is supported with atomic commits but **no conflict detection**. All writes inside a transaction are applied atomically (single-threaded in-memory operations). If the callback throws, no writes persist. Conflicts between concurrent transactions are NOT detected — the emulator does not track read sets or document versions, and the SDK's `ABORTED` retry path is never triggered. This is sufficient for the vast majority of single-threaded test suites. Tests that require real Firestore isolation semantics must run against production.
 
