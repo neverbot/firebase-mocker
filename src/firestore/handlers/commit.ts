@@ -4,6 +4,7 @@
 
 import * as grpc from '@grpc/grpc-js';
 import { FirestoreDocument, FirestoreValue, FieldType } from '../../types';
+import { splitFieldPath } from '../fieldPath';
 import type { FirestoreServer } from '../server';
 import { normalizeGrpcValueToFirestoreValue } from '../utils';
 
@@ -75,7 +76,7 @@ function getValueAtPath(
   fields: Record<string, FirestoreValue>,
   path: string,
 ): FirestoreValue | undefined {
-  const parts = path.split('.');
+  const parts = splitFieldPath(path);
   let currentFields: Record<string, FirestoreValue> | undefined = fields;
   for (let i = 0; i < parts.length; i++) {
     if (!currentFields || !(parts[i] in currentFields)) {
@@ -102,7 +103,7 @@ function setValueAtPath(
   path: string,
   value: FirestoreValue,
 ): void {
-  const parts = path.split('.');
+  const parts = splitFieldPath(path);
   let currentFields = fields;
   for (let i = 0; i < parts.length - 1; i++) {
     const part = parts[i];
@@ -123,7 +124,7 @@ function deleteValueAtPath(
   fields: Record<string, FirestoreValue>,
   path: string,
 ): void {
-  const parts = path.split('.');
+  const parts = splitFieldPath(path);
   let currentFields: Record<string, FirestoreValue> | undefined = fields;
   for (let i = 0; i < parts.length - 1; i++) {
     const next = currentFields?.[parts[i]] as any;
@@ -487,6 +488,21 @@ export function handleCommit(
           if (!fieldPath) {
             return;
           }
+
+          const writeTransformedValue = (value: FirestoreValue): void => {
+            const segments = splitFieldPath(fieldPath);
+            if (segments.length <= 1) {
+              const key = segments[0] ?? fieldPath;
+              fields[key] = value;
+              const detectedType = server.detectFieldType(value);
+              if (detectedType) {
+                fieldTypes[key] = detectedType;
+              }
+            } else {
+              setValueAtPath(fields, fieldPath, value);
+            }
+          };
+
           const serverValue =
             t.setToServerValue || t.set_to_server_value || t.serverValue;
           if (
@@ -494,23 +510,15 @@ export function handleCommit(
             serverValue === 1 ||
             serverValue === 'REQUEST_TIME_UNSPECIFIED'
           ) {
-            const iso = now.toISOString();
-            fields[fieldPath] = { timestampValue: iso };
-            const detectedType = server.detectFieldType(fields[fieldPath]);
-            if (detectedType) {
-              fieldTypes[fieldPath] = detectedType;
-            }
+            writeTransformedValue({ timestampValue: now.toISOString() });
             return;
           }
 
-          const existingValue = existingDoc?.fields?.[fieldPath];
+          const existingFields = existingDoc?.fields ?? {};
+          const existingValue = getValueAtPath(existingFields, fieldPath);
           const transformed = applyFieldTransform(t, existingValue);
           if (transformed !== null) {
-            fields[fieldPath] = transformed;
-            const detectedType = server.detectFieldType(transformed);
-            if (detectedType) {
-              fieldTypes[fieldPath] = detectedType;
-            }
+            writeTransformedValue(transformed);
           }
         };
 
@@ -531,8 +539,31 @@ export function handleCommit(
         let finalFields = fields;
         if (existingDoc && write.updateMask) {
           const mask = write.updateMask;
-          const fieldPaths: string[] =
-            mask.field_paths ?? mask.fieldPaths ?? [];
+          const maskPaths: string[] = mask.field_paths ?? mask.fieldPaths ?? [];
+          // The SDK encodes transform-only `update()` calls with an empty
+          // `updateMask.fieldPaths` and the affected paths only on the
+          // transform entries. Union them so the merge logic sees the full
+          // set of paths that this Write touches.
+          const transformPaths: string[] = [
+            ...((write.updateTransforms ||
+              write.update_transforms ||
+              []) as any[]),
+            ...((write.transform?.fieldTransforms ||
+              write.transform?.field_transforms ||
+              []) as any[]),
+          ]
+            .map(
+              (t: any) =>
+                (t?.fieldPath ||
+                  t?.field_path ||
+                  t?.field ||
+                  t?.Field ||
+                  '') as string,
+            )
+            .filter((p) => p);
+          const fieldPaths = Array.from(
+            new Set([...maskPaths, ...transformPaths]),
+          );
           const existingFields = existingDoc.fields || {};
           finalFields = JSON.parse(JSON.stringify(existingFields)) as Record<
             string,

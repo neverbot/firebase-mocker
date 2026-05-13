@@ -11,6 +11,7 @@ import {
   FieldType,
   FIELD_TYPE_KEYS,
 } from '../types';
+import { splitFieldPath } from './fieldPath';
 
 /**
  * Firestore logger type
@@ -689,7 +690,7 @@ export function getFieldValueByPath(
   if (!path) {
     return undefined;
   }
-  const parts = path.split('.');
+  const parts = splitFieldPath(path);
   let current: any = fields;
 
   for (const part of parts) {
