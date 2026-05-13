@@ -7,9 +7,12 @@ import {
   FirestoreConfig,
   FirebaseAuthConfig,
   FirebaseStorageConfig,
+  FirebaseRemoteConfigConfig,
 } from './config';
 import { AuthServer } from './firebase-auth';
 import { generateTestIdToken } from './firebase-auth/jwt';
+import { RemoteConfigServer } from './firebase-remote-config';
+import type { StoredTemplate } from './firebase-remote-config';
 import { StorageServer } from './firebase-storage';
 import {
   patchGetSignedUrl,
@@ -20,6 +23,8 @@ import { FirestoreServer } from './firestore';
 let authServer: AuthServer | null = null;
 let firestoreServer: FirestoreServer | null = null;
 let storageServer: StorageServer | null = null;
+let remoteConfigServer: RemoteConfigServer | null = null;
+let previousRemoteConfigUrlBase: string | undefined;
 
 /**
  * Main firebaseMocker object with factory methods
@@ -135,6 +140,51 @@ export const firebaseMocker = {
       storageServer = null;
       delete process.env.FIREBASE_STORAGE_EMULATOR_HOST;
       delete process.env.STORAGE_EMULATOR_HOST;
+    }
+  },
+
+  /**
+   * Start the Firebase Remote Config HTTP emulator.
+   * Sets FIREBASE_REMOTE_CONFIG_URL_BASE so firebase-admin RemoteConfig uses this emulator.
+   * @param opts - Remote Config config (port, host, projectId, optional initialTemplate)
+   * @returns RemoteConfigServer instance
+   */
+  startRemoteConfigServer: async (
+    opts?: Partial<FirebaseRemoteConfigConfig> & {
+      initialTemplate?: Partial<StoredTemplate>;
+    },
+  ): Promise<RemoteConfigServer> => {
+    const { initialTemplate, ...rest } = opts ?? {};
+    config.addConfig({ 'firebase-remote-config': rest });
+
+    const c = config.getObject('firebase-remote-config');
+    previousRemoteConfigUrlBase = process.env.FIREBASE_REMOTE_CONFIG_URL_BASE;
+    process.env.FIREBASE_REMOTE_CONFIG_URL_BASE = `http://${c.host as string}:${c.port as number}`;
+
+    remoteConfigServer = new RemoteConfigServer({
+      port: c.port as number,
+      host: c.host as string,
+      projectId: c.projectId as string,
+      initialTemplate,
+    });
+    await remoteConfigServer.start();
+    return remoteConfigServer;
+  },
+
+  /**
+   * Stop the last started Remote Config server (if any).
+   */
+  stopRemoteConfigServer: async (): Promise<void> => {
+    if (remoteConfigServer) {
+      await remoteConfigServer.stop();
+      remoteConfigServer = null;
+      if (previousRemoteConfigUrlBase === undefined) {
+        delete process.env.FIREBASE_REMOTE_CONFIG_URL_BASE;
+      } else {
+        process.env.FIREBASE_REMOTE_CONFIG_URL_BASE =
+          previousRemoteConfigUrlBase;
+      }
+      previousRemoteConfigUrlBase = undefined;
     }
   },
 
