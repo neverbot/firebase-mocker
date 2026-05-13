@@ -6,6 +6,7 @@
 
 import express, { Request, Response } from 'express';
 import { getLogger } from '../logger';
+import { generateTestIdToken } from './jwt';
 import { AuthStorage, AuthEmulatorUser } from './storage';
 
 function randomUid(): string {
@@ -117,6 +118,15 @@ export class AuthServer {
 
       if (api === 'accounts:sendOobCode') {
         this.handleSendOobCode(body, send);
+        return;
+      }
+
+      if (api === 'accounts:signInWithCustomToken') {
+        this.handleSignInWithCustomToken(
+          body,
+          String(req.params.projectId),
+          send,
+        );
         return;
       }
 
@@ -371,6 +381,95 @@ export class AuthServer {
     );
 
     send(200, { email, oobCode, oobLink });
+  }
+
+  private handleSignInWithCustomToken(
+    req: Record<string, unknown>,
+    projectId: string,
+    send: (status: number, data: object) => void,
+  ): void {
+    const token = req.token as string | undefined;
+
+    this.logger.info(
+      'auth',
+      `[AUTH DEBUG] [${this.debugTs()}] accounts:signInWithCustomToken | hasToken=${Boolean(token)}`,
+    );
+
+    if (!token || typeof token !== 'string') {
+      send(400, {
+        error: { message: 'MISSING_CUSTOM_TOKEN', code: 400 },
+      });
+      return;
+    }
+
+    const parts = token.split('.');
+    if (parts.length < 2) {
+      send(400, {
+        error: { message: 'INVALID_CUSTOM_TOKEN', code: 400 },
+      });
+      return;
+    }
+
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(
+        Buffer.from(parts[1], 'base64url').toString('utf8'),
+      ) as Record<string, unknown>;
+    } catch {
+      send(400, {
+        error: { message: 'INVALID_CUSTOM_TOKEN', code: 400 },
+      });
+      return;
+    }
+
+    const uid = (payload.uid as string) || (payload.sub as string) || '';
+    if (!uid) {
+      send(400, {
+        error: { message: 'MISSING_CUSTOM_TOKEN_UID', code: 400 },
+      });
+      return;
+    }
+
+    // Auto-create the user if missing — matches the real Auth emulator
+    // behavior for `signInWithCustomToken`.
+    let user = this.storage.getByUid(uid);
+    let isNewUser = false;
+    if (!user) {
+      const now = new Date().toISOString();
+      user = {
+        localId: uid,
+        createdAt: now,
+        lastLoginAt: now,
+        emailVerified: false,
+        providerUserInfo: [],
+        disabled: false,
+      };
+      this.storage.add(user);
+      isNewUser = true;
+    }
+
+    const customClaims = payload.claims as Record<string, unknown> | undefined;
+    const idToken = generateTestIdToken({
+      uid,
+      email: user.email,
+      projectId,
+      claims: customClaims,
+    });
+    const refreshToken = `refresh-${uid}-${Date.now()}`;
+
+    this.logger.info(
+      'auth',
+      `[AUTH] signInWithCustomToken uid=${uid} isNewUser=${isNewUser}`,
+    );
+
+    send(200, {
+      kind: 'identitytoolkit#VerifyCustomTokenResponse',
+      idToken,
+      refreshToken,
+      expiresIn: '3600',
+      isNewUser,
+      localId: uid,
+    });
   }
 
   async start(): Promise<void> {
