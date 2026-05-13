@@ -209,6 +209,8 @@ The Firestore emulator implements these gRPC methods:
 | `BeginTransaction` | Yes (Level 1) | `db.runTransaction()` — atomic commit, no conflict detection (see note below) |
 | `Rollback` | Yes | `db.runTransaction()` rollback when callback throws |
 
+**Note on dotted-path updates:** `ref.update({ 'a.b': value })` is honored: when the SDK sends an `update_mask` with dotted paths, the emulator deep-merges only the masked paths into the stored document, preserving sibling fields inside the same map. `FieldValue.delete()` on a dotted path removes only that nested key. Top-level (non-dotted) paths still replace the whole field, matching real Firestore semantics.
+
 **Note on `FieldValue` transforms:** The `Commit` handler applies the following sentinel transforms encoded by the Admin SDK on `set()` / `update()`:
 
 - `FieldValue.serverTimestamp()` — replaced with the server's current timestamp.

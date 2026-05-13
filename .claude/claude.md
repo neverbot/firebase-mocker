@@ -82,6 +82,16 @@ The Firestore server uses **gRPC** (not REST), loaded from `proto/v1.json` (the 
 
 When an unimplemented RPC is called, the server logs a clear warning to stderr (or throws if `logs.onUnimplemented === 'throw'`).
 
+### Dotted-path updates (`update_mask`)
+
+`ref.update({ 'a.b': v })` is encoded by the Admin SDK as a Write with `update_mask.field_paths = ['a.b']` and a nested map in `update.fields`. The `Commit` handler detects dotted paths in the mask and, instead of replacing the top-level field, walks each path through the nested `mapValue.fields` and applies only the leaf change. Helpers in `src/firestore/handlers/commit.ts`:
+
+- `getValueAtPath(fields, path)` — walks dotted path through nested `mapValue.fields`, returns leaf or `undefined`.
+- `setValueAtPath(fields, path, value)` — creates intermediate empty `mapValue` containers as needed.
+- `deleteValueAtPath(fields, path)` — removes the leaf; no-op if intermediate is missing.
+
+When the mask contains at least one dotted path, the entire merge takes the dotted-path branch (deep clone of existing fields, then walk every masked path). `FieldValue.delete()` along a dotted path is just "path absent from incoming `fields`" → `deleteValueAtPath`. Non-dotted masks fall back to the original top-level merge.
+
 ### `FieldValue` transforms
 
 The `Commit` handler inspects both `write.updateTransforms` (modern SDK path) and `write.transform.fieldTransforms` (legacy) and applies these sentinels alongside the regular `update.fields` payload:
