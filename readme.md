@@ -205,7 +205,7 @@ The Firestore emulator implements these gRPC methods:
 | `Listen` | Yes | Real-time listeners (streaming) |
 | `Write` | Yes | Write stream (used by client SDK) |
 | `ListCollectionIds` | Yes | List subcollection IDs under a document (`doc.ref.listCollections()`) |
-| `BatchWrite` | No | Returns UNIMPLEMENTED; see `onUnimplemented` in Configuration |
+| `BatchWrite` | Yes | Used by `db.bulkWriter()` — per-write status, partial success allowed (non-atomic) |
 | `BeginTransaction` | Yes (Level 1) | `db.runTransaction()` — atomic commit, no conflict detection (see note below) |
 | `Rollback` | Yes | `db.runTransaction()` rollback when callback throws |
 

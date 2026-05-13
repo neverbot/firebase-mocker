@@ -75,10 +75,11 @@ The Firestore server uses **gRPC** (not REST), loaded from `proto/v1.json` (the 
 - `ListCollectionIds` (`doc.ref.listCollections()`)
 - `BeginTransaction` (Level 1: atomic commit, no conflict detection)
 - `Rollback` (Level 1: removes transaction tracking)
+- `BatchWrite` (per-write status, non-atomic; reuses Commit per write)
 
 ### Not implemented (return UNIMPLEMENTED)
 
-- `BatchWrite`
+_(none — every gRPC method exposed by the proto is wired)_
 
 When an unimplemented RPC is called, the server logs a clear warning to stderr (or throws if `logs.onUnimplemented === 'throw'`).
 
@@ -103,6 +104,14 @@ The `Commit` handler inspects both `write.updateTransforms` (modern SDK path) an
 - `arrayRemove(...values)` (proto: `removeAllFromArray`) — removes every occurrence matching one of the given values.
 
 Comparison of array elements goes through `canonicalizeValue()` because the SDK encodes incoming Values with an extra `valueType` field that the in-memory store does not carry; without stripping it, `arrayUnion` would re-append duplicates. Stored values are canonicalized too so subsequent reads stay stable.
+
+### BatchWrite
+
+`BatchWrite` is implemented in `src/firestore/handlers/batchWrite.ts` and powers `db.bulkWriter()`. Each input Write is fed through `handleCommit` individually (via a synthetic single-write call object), and the per-write outcome is translated into a `{writeResults, status}` response. Notes:
+
+- Response uses **camelCase** (`writeResults`, `updateTime`) because the SDK's `BulkWriter` reads `response.writeResults[i].updateTime` directly. This contrasts with `CommitResponse` which uses snake_case — see the field naming notes in this file.
+- A failed Write becomes `{writeResult: {}, status: {code: <grpc>, message}}` in the same index; the rest still succeed. The batch as a whole is non-atomic by design.
+- `firestore.recursiveDelete()` uses BulkWriter for the deletes, but relies on a "kindless all-descendants" query (`Query.forKindlessAllDescendants`) that walks subcollections by `__name__` ranges. `RunQuery` does not yet implement that variant, so the recursive-delete test in `test/firestore/batchWrite.e2e.ts` is `describe.skip`'d.
 
 ### Transactions (Level 1 semantics)
 
