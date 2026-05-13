@@ -7,6 +7,7 @@
 import express, { Request, Response } from 'express';
 import { getLogger } from '../logger';
 import { handleGetTemplate } from './handlers/getTemplate';
+import { handleUpdateTemplate } from './handlers/updateTemplate';
 import { RemoteConfigStorage, StoredTemplate } from './storage';
 
 export interface RemoteConfigServerConfig {
@@ -43,6 +44,13 @@ export class RemoteConfigServer {
       '/v1/projects/:projectId/remoteConfig',
       (req: Request, res: Response) => {
         handleGetTemplate(this.storage, this.config.projectId, req, res);
+      },
+    );
+
+    this.app.put(
+      '/v1/projects/:projectId/remoteConfig',
+      (req: Request, res: Response) => {
+        handleUpdateTemplate(this.storage, this.config.projectId, req, res);
       },
     );
 
