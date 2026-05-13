@@ -195,7 +195,7 @@ The Firestore emulator implements these gRPC methods:
 |--------|-----------|---------------------------------|
 | `GetDocument` | Yes | Single document fetch (`doc(id).get()`) |
 | `ListDocuments` | Yes | List documents in a collection |
-| `RunQuery` | Yes | Queries (`collection.get()`, `where()` field/composite/unary, `orderBy()` ASC/DESC including `__name__`, `limit()`, `offset()`, cursor pagination `startAt()` / `startAfter()` / `endAt()` / `endBefore()`, and `allDescendants` for `collectionGroup()` and `recursiveDelete()`) |
+| `RunQuery` | Yes | Queries (`collection.get()`, `where()` field/composite/unary, `orderBy()` ASC/DESC including `__name__`, `limit()`, `offset()`, cursor pagination `startAt()` / `startAfter()` / `endAt()` / `endBefore()`, and `allDescendants` for `collectionGroup()` and `recursiveDelete()` on both collections and documents) |
 | `RunAggregationQuery` | Yes | Aggregation queries, e.g. `count().get()` (COUNT supported; sum/avg return 0) |
 | `CreateDocument` | Yes | Create document with server-generated ID |
 | `UpdateDocument` | Yes | Update existing document |
@@ -209,7 +209,7 @@ The Firestore emulator implements these gRPC methods:
 | `BeginTransaction` | Yes (Level 1) | `db.runTransaction()` — atomic commit, no conflict detection (see note below) |
 | `Rollback` | Yes | `db.runTransaction()` rollback when callback throws |
 
-**Note on dotted-path updates:** `ref.update({ 'a.b': value })` is honored: when the SDK sends an `update_mask` with dotted paths, the emulator deep-merges only the masked paths into the stored document, preserving sibling fields inside the same map. `FieldValue.delete()` on a dotted path removes only that nested key. Top-level (non-dotted) paths still replace the whole field, matching real Firestore semantics.
+**Note on dotted-path updates:** `ref.update({ 'a.b': value })` is honored: when the SDK sends an `update_mask` with dotted paths, the emulator deep-merges only the masked paths into the stored document, preserving sibling fields inside the same map. `FieldValue.delete()` on a dotted path removes only that nested key. Top-level (non-dotted) paths still replace the whole field, matching real Firestore semantics. Segments containing characters that the Admin SDK escapes with backticks on the wire (colons, dashes, spaces, literal dots) are parsed correctly via the same canonical rules as `FieldPath` — both the string form (`'a.b-c'`) and the `new FieldPath('a', 'b-c')` form round-trip. For transform-only `update()` calls where the SDK omits the mask paths, the emulator unions the paths declared in `updateTransforms` so nested transforms (e.g. `FieldValue.serverTimestamp()` on `parent.last-seen`) preserve sibling fields.
 
 **Note on `FieldValue` transforms:** The `Commit` handler applies the following sentinel transforms encoded by the Admin SDK on `set()` / `update()`:
 
