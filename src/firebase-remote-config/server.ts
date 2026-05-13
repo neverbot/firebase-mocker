@@ -7,6 +7,7 @@
 import express, { Request, Response } from 'express';
 import { getLogger } from '../logger';
 import { handleGetTemplate } from './handlers/getTemplate';
+import { handleUnimplemented } from './handlers/unimplemented';
 import { handleUpdateTemplate } from './handlers/updateTemplate';
 import { RemoteConfigStorage, StoredTemplate } from './storage';
 
@@ -51,6 +52,17 @@ export class RemoteConfigServer {
       '/v1/projects/:projectId/remoteConfig',
       (req: Request, res: Response) => {
         handleUpdateTemplate(this.storage, this.config.projectId, req, res);
+      },
+    );
+
+    this.app.use(
+      '/v1/projects',
+      (req: Request, res: Response, next: express.NextFunction) => {
+        try {
+          handleUnimplemented(req, res);
+        } catch (err) {
+          next(err);
+        }
       },
     );
 
