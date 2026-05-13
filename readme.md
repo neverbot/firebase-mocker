@@ -5,6 +5,7 @@ A TypeScript-based emulator of the Firebase services. It provides **separate ser
  - **Firestore** (gRPC)
  - **Firebase Auth** (HTTP)
  - **Firebase Storage** (HTTP)
+ - **Firebase Remote Config** (HTTP)
 
 All data is stored **in memory** using TypeScript data structures (Maps, arrays, plain objects). Writes and reads go against these in-memory collections instead of a real database, so the emulator behaves like a real Firebase backend — but without network calls, credentials, or disk persistence.
 
@@ -18,7 +19,9 @@ Firebase Mocker can run:
 
 3. **Firebase Storage emulator** — An **HTTP server** that implements the Google Cloud Storage JSON API. The Admin SDK Storage API (e.g. `bucket.file().save()`, `file.download()`, `file.delete()`) uses it when `FIREBASE_STORAGE_EMULATOR_HOST` is set. Use it to test file uploads and downloads without a real GCS bucket.
 
-You can start **one, two, or all three** servers in the same process (e.g. in your test setup). Each server is independent: start only what your tests or app need.
+4. **Firebase Remote Config emulator** — An **HTTP server** that implements the Remote Config REST API. The Admin SDK Remote Config API (e.g. `remoteConfig().getTemplate()`, `remoteConfig().publishTemplate(template)`) uses it when `FIREBASE_REMOTE_CONFIG_URL_BASE` is set. Use it to test remote config reads and writes without a real Firebase project.
+
+You can start **one, two, three, or all four** servers in the same process (e.g. in your test setup). Each server is independent: start only what your tests or app need.
 
 ## Installation
 
@@ -49,7 +52,7 @@ npm run build
 
 ## Configuration
 
-Configuration is passed when starting each server. You can pass different options to `startFirestoreServer()`, `startAuthServer()`, and `startStorageServer()`.
+Configuration is passed when starting each server. You can pass different options to `startFirestoreServer()`, `startAuthServer()`, `startStorageServer()`, and `startRemoteConfigServer()`.
 
 ### Firestore server options
 
@@ -74,6 +77,15 @@ When calling `startStorageServer(config)`:
 - **port** — HTTP server port (default `9199`)
 - **host** — Bind address (default `'localhost'`)
 - **projectId** — Project ID (optional)
+
+### Firebase Remote Config server options
+
+When calling `startRemoteConfigServer(config)`:
+
+- **port** — HTTP server port (default `9299`)
+- **host** — Bind address (default `'localhost'`)
+- **projectId** — Project ID (optional)
+- **initialTemplate** — Optional initial template object (parameters, conditions, etc.) loaded before any test runs.
 
 ### Common options
 
@@ -113,6 +125,13 @@ const storageServer = await firebaseMocker.startStorageServer({
   projectId: 'my-project',
 });
 
+// Sets FIREBASE_REMOTE_CONFIG_URL_BASE with the right value automatically
+const remoteConfigServer = await firebaseMocker.startRemoteConfigServer({
+  port: 9299,
+  host: 'localhost',
+  projectId: 'my-project',
+});
+
 // Initialize Firebase Admin — it will pick up the emulator env vars
 admin.initializeApp({ projectId: 'my-project' });
 const db = admin.firestore();
@@ -123,11 +142,13 @@ const bucket = admin.storage().bucket('my-bucket');
 await db.collection('users').doc('user1').set({ name: 'Jane' });
 const user = await auth.createUser({ email: 'jane@example.com', password: 'secret' });
 await bucket.file('hello.txt').save(Buffer.from('Hello!'), { contentType: 'text/plain' });
+const template = await admin.remoteConfig().getTemplate();
 
 // Teardown (e.g. after tests)
 await firebaseMocker.stopFirestoreServer();
 await firebaseMocker.stopAuthServer();
 await firebaseMocker.stopStorageServer();
+await firebaseMocker.stopRemoteConfigServer();
 ```
 
 Notes:
@@ -218,6 +239,63 @@ The Storage emulator implements the Google Cloud Storage JSON API. The Firebase 
 | Compose objects | No | — |
 
 **Note on signed URLs**: The official `@google-cloud/storage` `getSignedUrl()` requires real service account credentials to sign URLs cryptographically. To support it in emulator mode, `startStorageServer()` monkey-patches `File.prototype.getSignedUrl` to return a URL pointing to the emulator (no signature). `stopStorageServer()` restores the original method.
+
+### Firebase Remote Config (HTTP)
+
+The Remote Config emulator implements the Firebase Remote Config REST API. The Firebase Admin SDK uses it when `FIREBASE_REMOTE_CONFIG_URL_BASE` is set.
+
+| Endpoint | Supported | Used by Firebase Admin SDK for |
+|----------|-----------|--------------------------------|
+| `GET /v1/projects/{projectId}/remoteConfig` | Yes | `remoteConfig().getTemplate()` |
+| `PUT /v1/projects/{projectId}/remoteConfig` | Yes | `remoteConfig().publishTemplate(template)` with `If-Match` etag check |
+| `POST /v1/projects/{projectId}/remoteConfig:rollback` | No | Returns 501 |
+| `GET /v1/projects/{projectId}/remoteConfig:listVersions` | No | Returns 501 |
+| `GET /v1/projects/{projectId}/namespaces/firebase-server/serverRemoteConfig` | No | Returns 501 |
+| `PUT /v1/projects/{projectId}/remoteConfig?validate_only=true` | No | Returns 501 |
+
+ETags are tracked as `etag-{projectId}-{counter}` (counter increments on each successful publish). `If-Match: *` is accepted to force-publish without an etag check. No version history is retained.
+
+## Firebase Remote Config emulator (HTTP)
+
+The Remote Config server implements the Firebase Remote Config REST API. The `firebase-admin` Remote Config client uses it when `FIREBASE_REMOTE_CONFIG_URL_BASE` is set; `startRemoteConfigServer()` sets that env var automatically.
+
+### Implemented endpoints
+
+| Endpoint | Implemented | Notes |
+|---|---|---|
+| `GET /v1/projects/{projectId}/remoteConfig` | Yes | `remoteConfig().getTemplate()` |
+| `PUT /v1/projects/{projectId}/remoteConfig` | Yes | `remoteConfig().publishTemplate(template)` with `If-Match` etag check |
+
+### Not implemented (return 501)
+
+- `POST /v1/projects/{projectId}/remoteConfig:rollback`
+- `GET /v1/projects/{projectId}/remoteConfig:listVersions`
+- `GET /v1/projects/{projectId}/namespaces/firebase-server/serverRemoteConfig`
+- `PUT /v1/projects/{projectId}/remoteConfig?validate_only=true`
+
+### Usage
+
+```typescript
+import { firebaseMocker } from 'firebase-mocker';
+import * as admin from 'firebase-admin';
+
+await firebaseMocker.startRemoteConfigServer({
+  port: 9299,
+  host: 'localhost',
+  projectId: 'demo-project',
+  initialTemplate: {
+    parameters: {
+      welcome_msg: { defaultValue: { value: 'Hi' }, valueType: 'STRING' },
+    },
+  },
+});
+
+admin.initializeApp({ projectId: 'demo-project' });
+const t = await admin.remoteConfig().getTemplate();
+// modify t.parameters and call admin.remoteConfig().publishTemplate(t)
+```
+
+The emulator does not evaluate conditions or maintain version history. ETags are tracked in memory as `etag-{projectId}-{counter}`.
 
 ## Technical notes
 
