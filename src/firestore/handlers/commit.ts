@@ -700,9 +700,18 @@ export function handleCommit(
       server.logger.log('grpc', `[Commit] ended transaction txnId=${txnId}`);
     }
 
+    // Send both snake_case and camelCase aliases. protobufjs/grpc-js field
+    // resolution depends on which keys the proto loader exposes; older paths
+    // (document creation) historically required snake_case here, while the
+    // client SDK's WriteBatch.commit() reads `response.writeResults` /
+    // `response.commitTime` (camelCase). Emitting both keeps both paths
+    // working — the encoder picks whichever matches the registered proto
+    // field name.
     safeCallback(null, {
       write_results: writeResults,
+      writeResults,
       commit_time: timestamp,
+      commitTime: timestamp,
     });
   } catch (error: unknown) {
     const errorMessage =
