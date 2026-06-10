@@ -2,7 +2,7 @@ import eslint from '@eslint/js';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 import prettier from 'eslint-plugin-prettier';
-import pluginImport from 'eslint-plugin-import';
+import pluginImport from 'eslint-plugin-import-x';
 
 export default tseslint.config(
   {
@@ -58,10 +58,10 @@ export default tseslint.config(
     },
     plugins: {
       'prettier': prettier,
-      import: pluginImport,
+      'import-x': pluginImport,
     },
     settings: {
-      'import/resolver': {
+      'import-x/resolver': {
         typescript: {
           alwaysTryTypes: true,
           project: './tsconfig.json',
@@ -72,12 +72,12 @@ export default tseslint.config(
           tryExtensions: ['.ts', '.tsx', '.js', '.jsx'],
         },
       },
-      'import/extensions': ['.js', '.jsx', '.ts', '.tsx'],
+      'import-x/extensions': ['.js', '.jsx', '.ts', '.tsx'],
     },
     rules: {
       // Import plugin rules
-      'import/no-unresolved': 'error',
-      'import/order': [
+      'import-x/no-unresolved': 'error',
+      'import-x/order': [
         'warn',
         {
           groups: [
@@ -95,8 +95,8 @@ export default tseslint.config(
           },
         },
       ],
-      'import/no-duplicates': 'warn',
-      'import/no-unused-modules': 'warn',
+      'import-x/no-duplicates': 'warn',
+      'import-x/no-unused-modules': 'warn',
       
       // TypeScript-specific rules
       '@typescript-eslint/no-restricted-imports': 'off',
@@ -163,10 +163,10 @@ export default tseslint.config(
     },
     plugins: {
       'prettier': prettier,
-      import: pluginImport,
+      'import-x': pluginImport,
     },
     settings: {
-      'import/resolver': {
+      'import-x/resolver': {
         typescript: {
           alwaysTryTypes: true,
           project: './test/tsconfig.json',
@@ -177,12 +177,12 @@ export default tseslint.config(
           tryExtensions: ['.ts', '.tsx', '.js', '.jsx'],
         },
       },
-      'import/extensions': ['.js', '.jsx', '.ts', '.tsx'],
+      'import-x/extensions': ['.js', '.jsx', '.ts', '.tsx'],
     },
     rules: {
       // Import plugin rules
-      'import/no-unresolved': 'error',
-      'import/order': [
+      'import-x/no-unresolved': 'error',
+      'import-x/order': [
         'warn',
         {
           groups: [
@@ -200,8 +200,8 @@ export default tseslint.config(
           },
         },
       ],
-      'import/no-duplicates': 'warn',
-      'import/no-unused-modules': 'warn',
+      'import-x/no-duplicates': 'warn',
+      'import-x/no-unused-modules': 'warn',
       
       // TypeScript-specific rules      
       '@typescript-eslint/explicit-function-return-type': 'off',
