@@ -250,12 +250,16 @@ export function normalizeGrpcValueToFirestoreValue(
     let iso: string;
     if (typeof raw === 'string') {
       iso = raw;
-    } else if (raw && typeof raw === 'object' && 'seconds' in raw) {
-      const sec = Number(raw.seconds) || 0;
-      const nan = Number(raw.nanos) || 0;
+    } else if (raw && typeof raw === 'object') {
+      // proto3 elides integer fields whose value is 0, so an epoch
+      // timestamp (seconds=0, nanos=0) arrives as an empty object. Default
+      // missing components to 0 instead of `Date.now()` — otherwise
+      // `new Date(0)` round-trips as NOW.
+      const sec = Number((raw as { seconds?: unknown }).seconds) || 0;
+      const nan = Number((raw as { nanos?: unknown }).nanos) || 0;
       iso = new Date(sec * 1000 + nan / 1000000).toISOString();
     } else {
-      iso = new Date().toISOString();
+      iso = new Date(0).toISOString();
     }
     return { timestampValue: iso };
   }
@@ -335,10 +339,13 @@ export function toGrpcValue(firestoreValue: FirestoreValue): any {
     if (typeof tv === 'string') {
       return { timestampValue: toTimestamp(new Date(tv)) };
     }
-    if (tv && typeof tv === 'object' && 'seconds' in tv) {
+    if (tv && typeof tv === 'object') {
+      // proto3 elision: epoch arrives without `seconds`/`nanos`; preserve
+      // it as the empty object so downstream encoders re-elide consistently
+      // rather than substituting `Date.now()`.
       return { timestampValue: tv };
     }
-    return { timestampValue: toTimestamp(new Date()) };
+    return { timestampValue: toTimestamp(new Date(0)) };
   }
   if ('bytesValue' in firestoreValue) {
     return { bytesValue: firestoreValue.bytesValue };
