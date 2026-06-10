@@ -1540,7 +1540,7 @@ export function destroyStreamWithUnimplemented(
     Object.assign(new Error(details), {
       code: grpc.status.UNIMPLEMENTED,
       details,
-    }) as grpc.ServiceError,
+    }),
   );
 }
 

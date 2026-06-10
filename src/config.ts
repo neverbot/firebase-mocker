@@ -165,7 +165,7 @@ class Config {
    */
   private getByPath(path: string): unknown {
     const parts = path.split('.');
-    let current: unknown = this.storage as Record<string, unknown>;
+    let current: unknown = this.storage;
     for (const part of parts) {
       if (current === null || current === undefined) {
         return undefined;

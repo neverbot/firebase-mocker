@@ -129,7 +129,7 @@ describe('firestore/utils', () => {
     });
     it('returns null for invalid input', () => {
       expect(fromFirestoreValue(null as any)).to.be.null;
-      expect(fromFirestoreValue({} as any)).to.be.null;
+      expect(fromFirestoreValue({})).to.be.null;
     });
   });
 

@@ -39,7 +39,7 @@ describe('Firestore Commit (unit)', () => {
           expect(value === null || value === undefined).to.be.true;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCommit(server, call, callback);
@@ -61,7 +61,7 @@ describe('Firestore Commit (unit)', () => {
           expect(value?.commit_time?.seconds).to.exist;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCommit(server, call, callback);
@@ -107,7 +107,7 @@ describe('Firestore Commit (unit)', () => {
           expect(stored?.fields?.title?.stringValue).to.equal('FromCommit');
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCommit(server, call, callback);
@@ -151,7 +151,7 @@ describe('Firestore Commit (unit)', () => {
           expect(stored).to.be.null;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCommit(server, call, callback);
@@ -181,7 +181,7 @@ describe('Firestore Commit (unit)', () => {
           );
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCommit(server, call, callback);
@@ -204,7 +204,7 @@ describe('Firestore Commit (unit)', () => {
           );
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCommit(server, call, callback);
@@ -243,7 +243,7 @@ describe('Firestore Commit (unit)', () => {
             .null;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCommit(server, call, callback);
@@ -281,7 +281,7 @@ describe('Firestore Commit (unit)', () => {
           ).to.equal('from-object');
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCommit(server, call, callback);
@@ -327,7 +327,7 @@ describe('Firestore Commit (unit)', () => {
           expect(stored?.fields?.b?.stringValue).to.equal('two');
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCommit(server, call, callback);
@@ -379,7 +379,7 @@ describe('Firestore Commit (unit)', () => {
           expect(stored?.fields?.c?.stringValue).to.equal('remove');
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCommit(server, call, callback);
@@ -429,7 +429,7 @@ describe('Firestore Commit (unit)', () => {
             .to.be.true;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCommit(server, call, callback);
@@ -478,7 +478,7 @@ describe('Firestore Commit (unit)', () => {
           expect(stored?.fields?.createdAt?.timestampValue).to.exist;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCommit(server, call, callback);
@@ -526,7 +526,7 @@ describe('Firestore Commit (unit)', () => {
           ).to.be.null;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCommit(server, call, callback);
@@ -573,7 +573,7 @@ describe('Firestore Commit (unit)', () => {
           expect(stored?.fields?.ts?.timestampValue).to.exist;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCommit(server, call, callback);
@@ -623,7 +623,7 @@ describe('Firestore Commit (unit)', () => {
           expect(stored?.fields?.x?.stringValue).to.equal('y');
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCommit(server, call, callback);
@@ -678,7 +678,7 @@ describe('Firestore Commit (unit)', () => {
           expect(stored?.fields?.title?.stringValue).to.equal('Saved');
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCommit(server, call, callback);
@@ -703,7 +703,7 @@ describe('Firestore Commit (unit)', () => {
           );
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCommit(server, call, callback);

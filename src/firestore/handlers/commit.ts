@@ -109,7 +109,7 @@ function setValueAtPath(
     const part = parts[i];
     const existing = currentFields[part] as any;
     if (!existing || !existing.mapValue || !existing.mapValue.fields) {
-      currentFields[part] = { mapValue: { fields: {} } } as FirestoreValue;
+      currentFields[part] = { mapValue: { fields: {} } };
     }
     currentFields = (currentFields[part] as any).mapValue.fields;
   }

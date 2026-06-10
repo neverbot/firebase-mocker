@@ -35,7 +35,7 @@ describe('Firestore unimplementedUnary (unit)', () => {
             expect(value === null || value === undefined).to.be.true;
             done();
           } catch (e) {
-            done(e as Error);
+            done(e);
           }
         };
         handleUnimplementedUnary(server, call, callback, rpcName);
@@ -55,7 +55,7 @@ describe('Firestore unimplementedUnary (unit)', () => {
           expect(value === null || value === undefined).to.be.true;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleUnimplementedUnary(server, call, callback, 'BeginTransaction');

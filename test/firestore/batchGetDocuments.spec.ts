@@ -77,7 +77,7 @@ describe('Firestore BatchGetDocuments (unit)', () => {
           expect(mock.chunks).to.have.length(0);
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       });
     });
@@ -96,7 +96,7 @@ describe('Firestore BatchGetDocuments (unit)', () => {
           expect(mock.endCalled).to.be.true;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       });
     });
@@ -137,7 +137,7 @@ describe('Firestore BatchGetDocuments (unit)', () => {
           expect(mock.endCalled).to.be.true;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       });
     });
@@ -164,7 +164,7 @@ describe('Firestore BatchGetDocuments (unit)', () => {
           expect(mock.endCalled).to.be.true;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       });
     });
@@ -202,7 +202,7 @@ describe('Firestore BatchGetDocuments (unit)', () => {
           expect(mock.endCalled).to.be.true;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       });
     });
@@ -246,7 +246,7 @@ describe('Firestore BatchGetDocuments (unit)', () => {
           expect(mock.endCalled).to.be.true;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       });
     });
@@ -301,7 +301,7 @@ describe('Firestore BatchGetDocuments (unit)', () => {
             server.getStorage().endTransaction(txnId);
             done();
           } catch (err) {
-            done(err as Error);
+            done(err);
           }
         },
         destroy() {},
@@ -342,7 +342,7 @@ describe('Firestore BatchGetDocuments (unit)', () => {
             server.getStorage().endTransaction(txnId);
             done();
           } catch (err) {
-            done(err as Error);
+            done(err);
           }
         },
         destroy() {},

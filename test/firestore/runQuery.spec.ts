@@ -202,7 +202,7 @@ describe('Firestore RunQuery (unit)', () => {
             server.getStorage().endTransaction(txnId);
             done();
           } catch (err) {
-            done(err as Error);
+            done(err);
           }
         },
         on() {},
@@ -252,7 +252,7 @@ describe('Firestore RunQuery (unit)', () => {
             server.getStorage().endTransaction(txnId);
             done();
           } catch (err) {
-            done(err as Error);
+            done(err);
           }
         },
         on() {},

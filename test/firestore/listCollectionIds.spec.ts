@@ -38,7 +38,7 @@ describe('Firestore ListCollectionIds (unit)', () => {
           expect(value === null || value === undefined).to.be.true;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleListCollectionIds(server, call, callback);
@@ -83,7 +83,7 @@ describe('Firestore ListCollectionIds (unit)', () => {
           expect(value?.nextPageToken).to.equal('');
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleListCollectionIds(server, call, callback);
@@ -134,7 +134,7 @@ describe('Firestore ListCollectionIds (unit)', () => {
             expect(value?.nextPageToken).to.equal('');
             resolve();
           } catch (e) {
-            reject(e as Error);
+            reject(e);
           }
         };
         handleListCollectionIds(server, call, callback);
@@ -167,7 +167,7 @@ describe('Firestore ListCollectionIds (unit)', () => {
       const first = await new Promise<any>((resolve, reject) => {
         handleListCollectionIds(server, callFirst, (err, value) => {
           if (err) {
-            reject(err as Error);
+            reject(err);
           } else {
             resolve(value);
           }
@@ -182,7 +182,7 @@ describe('Firestore ListCollectionIds (unit)', () => {
       const next = await new Promise<any>((resolve, reject) => {
         handleListCollectionIds(server, callNext, (err, value) => {
           if (err) {
-            reject(err as Error);
+            reject(err);
           } else {
             resolve(value);
           }
@@ -255,7 +255,7 @@ describe('Firestore ListCollectionIds (unit)', () => {
             ]);
             resolve();
           } catch (e) {
-            reject(e as Error);
+            reject(e);
           }
         };
         handleListCollectionIds(server, call, callback);

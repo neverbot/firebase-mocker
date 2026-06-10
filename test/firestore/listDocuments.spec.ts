@@ -33,7 +33,7 @@ describe('Firestore ListDocuments (unit)', () => {
           expect(value === null || value === undefined).to.be.true;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleListDocuments(server, call, callback);
@@ -55,7 +55,7 @@ describe('Firestore ListDocuments (unit)', () => {
           expect(value === null || value === undefined).to.be.true;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleListDocuments(server, call, callback);
@@ -75,7 +75,7 @@ describe('Firestore ListDocuments (unit)', () => {
           expect(value?.documents).to.be.an('array').that.is.empty;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleListDocuments(server, call, callback);
@@ -126,7 +126,7 @@ describe('Firestore ListDocuments (unit)', () => {
             expect(names).to.include(doc2Path);
             resolve();
           } catch (e) {
-            reject(e as Error);
+            reject(e);
           }
         };
         handleListDocuments(server, call, callback);
@@ -167,7 +167,7 @@ describe('Firestore ListDocuments (unit)', () => {
             expect((value?.documents as any[])[0].name).to.equal(childPath);
             resolve();
           } catch (e) {
-            reject(e as Error);
+            reject(e);
           }
         };
         handleListDocuments(server, call, callback);

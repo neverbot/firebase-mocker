@@ -87,7 +87,7 @@ describe('FirestoreServer (unit)', () => {
       expect(server.detectFieldType({ nullValue: null })).to.equal('nullValue');
     });
     it('returns null for unknown', () => {
-      expect(server.detectFieldType({} as any)).to.be.null;
+      expect(server.detectFieldType({})).to.be.null;
     });
   });
 

@@ -29,7 +29,7 @@ describe('Firestore GetDocument (unit)', () => {
           expect(value === null || value === undefined).to.be.true;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleGetDocument(server, call, callback);
@@ -56,7 +56,7 @@ describe('Firestore GetDocument (unit)', () => {
           expect(value === null || value === undefined).to.be.true;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleGetDocument(server, call, callback);
@@ -99,7 +99,7 @@ describe('Firestore GetDocument (unit)', () => {
             expect(value?.updateTime).to.exist;
             resolve();
           } catch (e) {
-            reject(e as Error);
+            reject(e);
           }
         };
         handleGetDocument(server, call, callback);
@@ -135,7 +135,7 @@ describe('Firestore GetDocument (unit)', () => {
             expect(value?.updateTime).to.exist;
             resolve();
           } catch (e) {
-            reject(e as Error);
+            reject(e);
           }
         };
         handleGetDocument(server, call, callback);

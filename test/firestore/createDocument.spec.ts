@@ -42,7 +42,7 @@ describe('Firestore CreateDocument (unit)', () => {
           expect(value === null || value === undefined).to.be.true;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleCreateDocument(server, call, callback);

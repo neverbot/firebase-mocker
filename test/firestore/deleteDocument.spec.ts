@@ -29,7 +29,7 @@ describe('Firestore DeleteDocument (unit)', () => {
           expect(value === null || value === undefined).to.be.true;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleDeleteDocument(server, call, callback);
@@ -56,7 +56,7 @@ describe('Firestore DeleteDocument (unit)', () => {
           expect(value === null || value === undefined).to.be.true;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleDeleteDocument(server, call, callback);

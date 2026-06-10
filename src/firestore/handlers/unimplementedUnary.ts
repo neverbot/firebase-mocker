@@ -22,7 +22,7 @@ export function handleUnimplementedUnary(
       code: grpc.status.UNIMPLEMENTED,
       message: `${rpcName} is not supported by this emulator`,
       details: `${rpcName} is not supported by this emulator`,
-    } as grpc.ServiceError,
+    },
     null,
   );
 }

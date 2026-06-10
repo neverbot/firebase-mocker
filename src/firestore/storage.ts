@@ -130,7 +130,7 @@ export class FirestoreStorage {
           fields: {},
           createTime: doc.createTime ?? '',
           updateTime: doc.updateTime ?? '',
-        } as FirestoreDocument;
+        };
       }
     });
   }

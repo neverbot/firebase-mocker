@@ -31,7 +31,7 @@ describe('Firestore UpdateDocument (unit)', () => {
           expect(value === null || value === undefined).to.be.true;
           done();
         } catch (e) {
-          done(e as Error);
+          done(e);
         }
       };
       handleUpdateDocument(server, call, callback);

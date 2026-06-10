@@ -229,6 +229,7 @@ export default tseslint.config(
       '@typescript-eslint/no-useless-constructor': 'off',
       '@typescript-eslint/dot-notation': 'off',
       '@typescript-eslint/no-unused-expressions': 'off', // Allow unused expressions in Mocha tests
+      '@typescript-eslint/prefer-promise-reject-errors': 'off', // Promise wrappers in tests forward caught values
       'max-lines-per-function': 'off',
       'max-len': 'off',
       'complexity': 'off',
