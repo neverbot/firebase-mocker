@@ -62,13 +62,9 @@ export async function setup(): Promise<void> {
     projectId: 'test-project',
   });
 
-  // IMPORTANT: Emulator env vars must be set BEFORE initializing the app
-  if (!process.env.FIRESTORE_EMULATOR_HOST) {
-    process.env.FIRESTORE_EMULATOR_HOST = 'localhost:3333';
-  }
-  if (!process.env.FIREBASE_AUTH_EMULATOR_HOST) {
-    process.env.FIREBASE_AUTH_EMULATOR_HOST = 'localhost:9099';
-  }
+  // Emulator env vars are set by `test/_envSetup.ts` (registered in
+  // `.mocharc.json`'s `require`) before any spec file imports firebase-admin
+  // submodules — the modular SDK captures host overrides at module-load time.
 
   // Initialize Firebase Admin with explicit project ID
   // Note: We don't need credentials when using emulators
