@@ -49,6 +49,11 @@ Or add to your project's `package.json`:
 
 Then run `npm install`.
 
+### Breaking changes in v2.0.0
+
+- Tooling: upgraded internal `firebase-admin` (devDep) to v14, `typescript` to 6, `eslint` to 10 (via `eslint-plugin-import-x`), `c8` to 11. Consumers don't inherit those — they only matter if you contribute to this repo.
+- New optional sub-export `firebase-mocker/register` for projects that consume `firebase-admin` v14 with Remote Config. See [Pre-loading env vars](#pre-loading-env-vars-with-firebase-mockerregister-required-for-remote-config-on-firebase-admin-v14) below. Existing consumers on `firebase-admin` v13 don't need to change anything.
+
 ### Development setup
 
 ```bash
@@ -168,6 +173,54 @@ Notes:
 - Call `start*Server()` **before** `admin.initializeApp(...)` so the emulator env vars are set in time.
 - Each server is independent — call only the one(s) you need; `stop*` only the ones you started.
 - Use `server.getStorage()` on any server instance to inspect the in-memory state from tests.
+
+### Pre-loading env vars with `firebase-mocker/register` (required for Remote Config on firebase-admin v14+)
+
+**Added in v2.0.0.**
+
+`firebase-admin` v14 removed the legacy `admin.remoteConfig()` lazy namespace. The modular replacement, `import { getRemoteConfig } from 'firebase-admin/remote-config'`, caches the base URL at module-load time:
+
+```js
+// inside firebase-admin/lib/remote-config/...
+const FIREBASE_REMOTE_CONFIG_URL_BASE =
+  process.env.FIREBASE_REMOTE_CONFIG_URL_BASE || 'https://firebaseremoteconfig.googleapis.com';
+```
+
+Calling `firebaseMocker.startRemoteConfigServer()` inside a Mocha `before()` hook is therefore too late: the constant has already captured the production URL, and the SDK will try to hit Google.
+
+To avoid this, `firebase-mocker` exposes a register hook that pre-sets all four emulator env vars to their defaults **before any test file is parsed**. Add it to your `.mocharc.json`:
+
+```json
+{
+  "require": [
+    "ts-node/register/transpile-only",
+    "firebase-mocker/register"
+  ]
+}
+```
+
+…or pass `--require firebase-mocker/register` on the Mocha command line, or set `NODE_OPTIONS='--require firebase-mocker/register'`.
+
+The defaults the hook installs are:
+
+| Variable | Default |
+|---|---|
+| `FIRESTORE_EMULATOR_HOST` | `localhost:3333` |
+| `FIREBASE_AUTH_EMULATOR_HOST` | `localhost:9099` |
+| `FIREBASE_STORAGE_EMULATOR_HOST` | `localhost:9199` |
+| `FIREBASE_REMOTE_CONFIG_URL_BASE` | `http://localhost:9299` |
+
+Each is set only when not already present, so a project on non-default ports can override individual vars in its own pre-require file (loaded before `firebase-mocker/register`) and the hook will leave those overrides intact.
+
+**When you need the hook:**
+
+- You use Remote Config **and** `firebase-admin` v14 or newer, **OR**
+- You import any `firebase-admin/<service>` submodule eagerly at the top of a file that is parsed before your `before()` hook runs.
+
+**When you don't:**
+
+- You only use Firestore, Auth, and Storage — those read their env vars per-request (Auth) or on first client construction (Firestore, Storage), so setting them inside `before()` via `start*Server()` is enough.
+- You use `firebase-admin` v13 with the legacy `admin.remoteConfig()` namespace, which lazy-loads the submodule on first call.
 
 ### Generating test ID tokens
 

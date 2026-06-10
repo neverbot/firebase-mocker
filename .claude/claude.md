@@ -27,6 +27,10 @@ The package exposes a `firebaseMocker` object from `src/index.ts`:
 - `firebaseMocker.stopStorageServer()` — stop it.
 - `firebaseMocker.startRemoteConfigServer({ port, host, projectId, initialTemplate? })` — start the Remote Config HTTP emulator. Sets `FIREBASE_REMOTE_CONFIG_URL_BASE` before returning.
 - `firebaseMocker.stopRemoteConfigServer()` — stop it (restores previous `FIREBASE_REMOTE_CONFIG_URL_BASE`).
+
+Side-effect register hook (since v2.0.0):
+
+- `firebase-mocker/register` — sub-export that, when required, sets `FIRESTORE_EMULATOR_HOST`, `FIREBASE_AUTH_EMULATOR_HOST`, `FIREBASE_STORAGE_EMULATOR_HOST`, and `FIREBASE_REMOTE_CONFIG_URL_BASE` to their defaults (only if not already set). Required for projects on `firebase-admin` v14+ that import `firebase-admin/remote-config` because that submodule caches the URL constant at module-load time. Add to mocharc `require` or pass via `NODE_OPTIONS='--require firebase-mocker/register'`. Source: `src/register.ts`. Compiled output: `dist/register.js`. Exposed through the `exports` field in `package.json`.
 - `addConfig({ logs: { verboseGrpcLogs, verboseAuthLogs, verboseStorageLogs, onUnimplemented } })` — configure logging and the policy for unimplemented RPCs (`'warn'` default, or `'throw'` for strict CI).
 
 All `start*Server` methods must be called **before** `admin.initializeApp(...)` so the env vars are picked up by the Admin SDK.
