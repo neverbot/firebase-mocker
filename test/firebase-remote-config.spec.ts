@@ -8,7 +8,14 @@
  */
 
 import { expect } from 'chai';
-import * as admin from 'firebase-admin';
+import {
+  App,
+  Credential,
+  deleteApp,
+  GoogleOAuthAccessToken,
+  initializeApp,
+} from 'firebase-admin/app';
+import { getRemoteConfig } from 'firebase-admin/remote-config';
 import { getRemoteConfigStorage } from './_setup';
 
 const PROJECT_ID = 'test-project';
@@ -16,8 +23,8 @@ const PROJECT_ID = 'test-project';
 // Custom credential that returns a fake access token without making any network
 // calls. The Remote Config emulator ignores the bearer token entirely, but
 // firebase-admin's AuthorizedHttpClient requires a credential object.
-const fakeCredential: admin.credential.Credential = {
-  async getAccessToken(): Promise<admin.GoogleOAuthAccessToken> {
+const fakeCredential: Credential = {
+  async getAccessToken(): Promise<GoogleOAuthAccessToken> {
     return Promise.resolve({
       access_token: 'fake-access-token-for-emulator',
       expires_in: 3600,
@@ -26,17 +33,17 @@ const fakeCredential: admin.credential.Credential = {
 };
 
 describe('Remote Config E2E (firebase-admin)', () => {
-  let app: admin.app.App;
+  let app: App;
 
   before(function () {
-    app = admin.initializeApp(
+    app = initializeApp(
       { projectId: PROJECT_ID, credential: fakeCredential },
       `rc-test-${Date.now()}`,
     );
   });
 
   after(async function () {
-    await app.delete();
+    await deleteApp(app);
   });
 
   beforeEach(function () {
@@ -44,7 +51,7 @@ describe('Remote Config E2E (firebase-admin)', () => {
   });
 
   it('getTemplate() returns empty template with non-empty etag', async () => {
-    const t = await app.remoteConfig().getTemplate();
+    const t = await getRemoteConfig(app).getTemplate();
     expect(t.parameters).to.deep.equal({});
     expect(t.conditions).to.deep.equal([]);
     expect(t.parameterGroups).to.deep.equal({});
@@ -52,12 +59,12 @@ describe('Remote Config E2E (firebase-admin)', () => {
   });
 
   it('publishTemplate() updates parameters and returns new template', async () => {
-    const t = await app.remoteConfig().getTemplate();
+    const t = await getRemoteConfig(app).getTemplate();
     t.parameters.welcome_msg = {
       defaultValue: { value: 'Hello world' },
       valueType: 'STRING',
     };
-    const updated = await app.remoteConfig().publishTemplate(t);
+    const updated = await getRemoteConfig(app).publishTemplate(t);
     expect(updated.etag).to.equal(`etag-${PROJECT_ID}-1`);
     expect(updated.parameters.welcome_msg.defaultValue).to.deep.equal({
       value: 'Hello world',
@@ -65,11 +72,11 @@ describe('Remote Config E2E (firebase-admin)', () => {
   });
 
   it('publishTemplate() with stale etag throws etag-mismatch error', async () => {
-    const t = await app.remoteConfig().getTemplate();
-    await app.remoteConfig().publishTemplate(t);
+    const t = await getRemoteConfig(app).getTemplate();
+    await getRemoteConfig(app).publishTemplate(t);
     let caught: Error | undefined;
     try {
-      await app.remoteConfig().publishTemplate(t);
+      await getRemoteConfig(app).publishTemplate(t);
     } catch (err) {
       caught = err as Error;
     }
@@ -81,13 +88,13 @@ describe('Remote Config E2E (firebase-admin)', () => {
   });
 
   it('getTemplate() after publish reflects changes', async () => {
-    const t = await app.remoteConfig().getTemplate();
+    const t = await getRemoteConfig(app).getTemplate();
     t.parameters.feature_x = {
       defaultValue: { value: 'true' },
       valueType: 'BOOLEAN',
     };
-    await app.remoteConfig().publishTemplate(t);
-    const after = await app.remoteConfig().getTemplate();
+    await getRemoteConfig(app).publishTemplate(t);
+    const after = await getRemoteConfig(app).getTemplate();
     expect(after.parameters.feature_x.defaultValue).to.deep.equal({
       value: 'true',
     });
@@ -95,15 +102,15 @@ describe('Remote Config E2E (firebase-admin)', () => {
   });
 
   it('full cycle: get -> modify -> publish -> get -> see changes', async () => {
-    const t1 = await app.remoteConfig().getTemplate();
+    const t1 = await getRemoteConfig(app).getTemplate();
     t1.parameters.a = { defaultValue: { value: '1' }, valueType: 'STRING' };
-    await app.remoteConfig().publishTemplate(t1);
+    await getRemoteConfig(app).publishTemplate(t1);
 
-    const t2 = await app.remoteConfig().getTemplate();
+    const t2 = await getRemoteConfig(app).getTemplate();
     t2.parameters.b = { defaultValue: { value: '2' }, valueType: 'STRING' };
-    await app.remoteConfig().publishTemplate(t2);
+    await getRemoteConfig(app).publishTemplate(t2);
 
-    const final = await app.remoteConfig().getTemplate();
+    const final = await getRemoteConfig(app).getTemplate();
     expect(final.parameters.a.defaultValue).to.deep.equal({ value: '1' });
     expect(final.parameters.b.defaultValue).to.deep.equal({ value: '2' });
     expect(final.version.versionNumber).to.equal('2');

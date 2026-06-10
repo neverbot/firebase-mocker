@@ -5,13 +5,16 @@
  */
 
 import { expect } from 'chai';
-import * as admin from 'firebase-admin';
+import {
+  Firestore,
+  FieldValue,
+  FieldPath,
+  Timestamp,
+} from 'firebase-admin/firestore';
 import { getFirestore } from '../_setup';
 
 describe('Firestore field path backtick escaping (e2e)', () => {
-  let db: admin.firestore.Firestore;
-  const FieldPath = admin.firestore.FieldPath;
-  const FieldValue = admin.firestore.FieldValue;
+  let db: Firestore;
 
   before(function () {
     db = getFirestore();
@@ -77,8 +80,6 @@ describe('Firestore field path backtick escaping (e2e)', () => {
     const snap = await ref.get();
     const data = snap.data();
     expect(data?.parent?.sibling).to.equal('keep');
-    expect(data?.parent?.['last-seen']).to.be.instanceOf(
-      admin.firestore.Timestamp,
-    );
+    expect(data?.parent?.['last-seen']).to.be.instanceOf(Timestamp);
   });
 });

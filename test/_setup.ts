@@ -3,7 +3,12 @@
  * This file initializes the Firebase mocker and sets up the testing environment
  */
 
-import * as admin from 'firebase-admin';
+import { App, initializeApp } from 'firebase-admin/app';
+import {
+  FieldValue,
+  Firestore,
+  getFirestore as adminGetFirestore,
+} from 'firebase-admin/firestore';
 import { AuthServer } from '../src/firebase-auth';
 import { RemoteConfigServer } from '../src/firebase-remote-config';
 import { StorageServer } from '../src/firebase-storage';
@@ -11,7 +16,7 @@ import { FirestoreServer } from '../src/firestore';
 import { firebaseMocker } from '../src/index';
 
 // Initialize Firebase Admin SDK (will use emulators if FIRESTORE_EMULATOR_HOST / FIREBASE_AUTH_EMULATOR_HOST are set)
-let firebaseApp: admin.app.App | undefined = undefined;
+let firebaseApp: App | undefined = undefined;
 let firestoreServer: FirestoreServer | null = null;
 let authServer: AuthServer | null = null;
 let storageServer: StorageServer | null = null;
@@ -67,7 +72,7 @@ export async function setup(): Promise<void> {
 
   // Initialize Firebase Admin with explicit project ID
   // Note: We don't need credentials when using emulators
-  firebaseApp = admin.initializeApp(
+  firebaseApp = initializeApp(
     {
       projectId: 'test-project',
     },
@@ -76,7 +81,7 @@ export async function setup(): Promise<void> {
 
   // Get Firestore instance
   // Firebase Admin SDK should automatically detect FIRESTORE_EMULATOR_HOST
-  const firestore = admin.firestore(firebaseApp);
+  const firestore = adminGetFirestore(firebaseApp);
 
   // Log the configuration to debug
   console.log(`[SETUP] Firestore admin instance created`);
@@ -147,11 +152,11 @@ export async function teardown(): Promise<void> {
 /**
  * Get the Firebase Admin Firestore instance
  */
-export function getFirestore(): admin.firestore.Firestore {
+export function getFirestore(): Firestore {
   if (!firebaseApp) {
     throw new Error('Firebase app not initialized. Call setup() first.');
   }
-  return admin.firestore(firebaseApp);
+  return adminGetFirestore(firebaseApp);
 }
 
 /**
@@ -175,7 +180,7 @@ export function getFirestoreStorage() {
 /**
  * Get the Firebase Admin app instance (the initialized firebase-admin app)
  */
-export function getAdminApp(): admin.app.App {
+export function getAdminApp(): App {
   if (!firebaseApp) {
     throw new Error('Firebase app not initialized. Call setup() first.');
   }
@@ -249,7 +254,7 @@ export async function testSetup(): Promise<void> {
     const testDoc = testCollection.doc('test-doc');
     await testDoc.set({
       message: 'Hello from firebase-mocker',
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      timestamp: FieldValue.serverTimestamp(),
     });
 
     // Test read

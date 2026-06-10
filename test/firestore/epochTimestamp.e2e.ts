@@ -6,12 +6,11 @@
  */
 
 import { expect } from 'chai';
-import * as admin from 'firebase-admin';
+import { Firestore, Timestamp } from 'firebase-admin/firestore';
 import { getFirestore } from '../_setup';
 
 describe('Firestore epoch Timestamp round-trip (e2e)', () => {
-  let db: admin.firestore.Firestore;
-  const Timestamp = admin.firestore.Timestamp;
+  let db: Firestore;
 
   before(function () {
     db = getFirestore();
@@ -21,7 +20,7 @@ describe('Firestore epoch Timestamp round-trip (e2e)', () => {
     const ref = db.collection('epoch').doc('d' + Date.now());
     await ref.set({ ts: new Date(0) });
     const snap = await ref.get();
-    const ts = snap.data()?.ts as admin.firestore.Timestamp;
+    const ts = snap.data()?.ts as Timestamp;
     expect(ts).to.be.instanceOf(Timestamp);
     expect(ts.toMillis()).to.equal(0);
     expect(ts.toDate().toISOString()).to.equal('1970-01-01T00:00:00.000Z');
@@ -31,7 +30,7 @@ describe('Firestore epoch Timestamp round-trip (e2e)', () => {
     const ref = db.collection('epoch').doc('d' + Date.now());
     await ref.set({ ts: Timestamp.fromMillis(0) });
     const snap = await ref.get();
-    const ts = snap.data()?.ts as admin.firestore.Timestamp;
+    const ts = snap.data()?.ts as Timestamp;
     expect(ts.toMillis()).to.equal(0);
   });
 
@@ -40,7 +39,7 @@ describe('Firestore epoch Timestamp round-trip (e2e)', () => {
     const original = new Date('2020-01-15T12:34:56.789Z');
     await ref.set({ ts: original });
     const snap = await ref.get();
-    const ts = snap.data()?.ts as admin.firestore.Timestamp;
+    const ts = snap.data()?.ts as Timestamp;
     expect(ts.toMillis()).to.equal(original.getTime());
   });
 
@@ -48,7 +47,7 @@ describe('Firestore epoch Timestamp round-trip (e2e)', () => {
     const ref = db.collection('epoch').doc('d' + Date.now());
     await ref.set({ status: 'draft', publishedAt: new Date(0) });
     const snap = await ref.get();
-    const publishedAt = snap.data()?.publishedAt as admin.firestore.Timestamp;
+    const publishedAt = snap.data()?.publishedAt as Timestamp;
     expect(publishedAt.toMillis()).to.equal(0);
   });
 });

@@ -4,7 +4,7 @@
 
 import * as http from 'http';
 import { expect } from 'chai';
-import * as admin from 'firebase-admin';
+import { Storage, getStorage } from 'firebase-admin/storage';
 import { getAdminApp, getStorageStorage } from '../_setup';
 
 async function httpGet(
@@ -36,10 +36,10 @@ async function httpGet(
 }
 
 describe('Firebase Storage getSignedUrl (e2e)', () => {
-  let bucket: ReturnType<admin.storage.Storage['bucket']>;
+  let bucket: ReturnType<Storage['bucket']>;
 
   before(function () {
-    bucket = getAdminApp().storage().bucket('test-bucket');
+    bucket = getStorage(getAdminApp()).bucket('test-bucket');
   });
 
   afterEach(function () {

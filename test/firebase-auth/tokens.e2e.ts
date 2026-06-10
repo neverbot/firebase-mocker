@@ -4,16 +4,16 @@
  */
 
 import { expect } from 'chai';
-import * as admin from 'firebase-admin';
+import { Auth, DecodedIdToken, getAuth } from 'firebase-admin/auth';
 import { firebaseMocker } from '../../src/index';
 import { getAdminApp } from '../_setup';
 
 describe('Firebase Auth tokens (e2e)', () => {
-  let auth: admin.auth.Auth;
+  let auth: Auth;
   const ts = Date.now();
 
   before(function () {
-    auth = getAdminApp().auth();
+    auth = getAuth(getAdminApp());
   });
 
   describe('createCustomToken', () => {
@@ -66,9 +66,7 @@ describe('Firebase Auth tokens (e2e)', () => {
         projectId: 'test-project',
         claims: { roles: ['admin', 'editor'] },
       });
-      const decoded = (await auth.verifyIdToken(
-        token,
-      )) as admin.auth.DecodedIdToken & {
+      const decoded = (await auth.verifyIdToken(token)) as DecodedIdToken & {
         roles?: string[];
       };
       expect(decoded.roles).to.deep.equal(['admin', 'editor']);

@@ -5,7 +5,7 @@
  */
 
 import { expect } from 'chai';
-import * as admin from 'firebase-admin';
+import { Auth, DecodedIdToken, getAuth } from 'firebase-admin/auth';
 import { getAdminApp } from '../_setup';
 
 const AUTH_PORT = 9099;
@@ -39,11 +39,11 @@ async function signInWithCustomToken(token: string): Promise<{
 }
 
 describe('Auth signInWithCustomToken (e2e)', () => {
-  let auth: admin.auth.Auth;
+  let auth: Auth;
   const ts = Date.now();
 
   before(function () {
-    auth = getAdminApp().auth();
+    auth = getAuth(getAdminApp());
   });
 
   it('returns an idToken that verifyIdToken accepts', async function () {
@@ -84,7 +84,7 @@ describe('Auth signInWithCustomToken (e2e)', () => {
 
     const decoded = (await auth.verifyIdToken(
       res.idToken,
-    )) as admin.auth.DecodedIdToken & { role?: string };
+    )) as DecodedIdToken & { role?: string };
     expect(decoded.role).to.equal('editor');
   });
 

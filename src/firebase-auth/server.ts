@@ -224,7 +224,12 @@ export class AuthServer {
         );
         send(400, {
           error: {
-            message: 'The email address is already in use by another account.',
+            // Identity Toolkit canonical code; firebase-admin v14 maps this
+            // to the public `auth/email-already-exists` error with the human
+            // message "The email address is already in use by another
+            // account." Earlier versions accepted the human message verbatim;
+            // since v14's error revamp the SDK requires the canonical token.
+            message: 'EMAIL_EXISTS',
             code: 400,
           },
         });

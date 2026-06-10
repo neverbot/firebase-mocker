@@ -7,12 +7,11 @@
  */
 
 import { expect } from 'chai';
-import * as admin from 'firebase-admin';
+import { Firestore, FieldValue } from 'firebase-admin/firestore';
 import { getFirestore } from '../_setup';
 
 describe('Firestore dotted field paths (e2e)', () => {
-  let db: admin.firestore.Firestore;
-  const FieldValue = admin.firestore.FieldValue;
+  let db: Firestore;
 
   before(function () {
     db = getFirestore();

@@ -4,11 +4,11 @@
  * (The SDK may not always deliver that error to the error callback.)
  */
 
-import * as admin from 'firebase-admin';
+import { Firestore } from 'firebase-admin/firestore';
 import { getFirestore } from '../_setup';
 
 describe('Firestore Listen (e2e)', () => {
-  let db: admin.firestore.Firestore;
+  let db: Firestore;
 
   before(function () {
     db = getFirestore();

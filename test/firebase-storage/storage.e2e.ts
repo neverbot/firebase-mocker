@@ -7,14 +7,14 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as path from 'path';
 import { expect } from 'chai';
-import * as admin from 'firebase-admin';
+import { Storage, getStorage } from 'firebase-admin/storage';
 import { getAdminApp, getStorageServer, getStorageStorage } from '../_setup';
 
 describe('Firebase Storage (e2e)', () => {
-  let bucket: ReturnType<admin.storage.Storage['bucket']>;
+  let bucket: ReturnType<Storage['bucket']>;
 
   before(function () {
-    bucket = getAdminApp().storage().bucket('test-bucket');
+    bucket = getStorage(getAdminApp()).bucket('test-bucket');
   });
 
   afterEach(function () {

@@ -6,13 +6,11 @@
  */
 
 import { expect } from 'chai';
-import * as admin from 'firebase-admin';
+import { Firestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getFirestore } from '../_setup';
 
 describe('Firestore serverTimestamp normalization (e2e)', () => {
-  let db: admin.firestore.Firestore;
-  const FieldValue = admin.firestore.FieldValue;
-  const Timestamp = admin.firestore.Timestamp;
+  let db: Firestore;
 
   before(function () {
     db = getFirestore();
@@ -36,12 +34,8 @@ describe('Firestore serverTimestamp normalization (e2e)', () => {
     const data = snap.data();
     expect(data?.name).to.equal('x');
     expect(data?.ts).to.be.instanceOf(Timestamp);
-    expect((data?.ts as admin.firestore.Timestamp).toMillis()).to.be.at.least(
-      before - 1000,
-    );
-    expect((data?.ts as admin.firestore.Timestamp).toMillis()).to.be.at.most(
-      after + 1000,
-    );
+    expect((data?.ts as Timestamp).toMillis()).to.be.at.least(before - 1000);
+    expect((data?.ts as Timestamp).toMillis()).to.be.at.most(after + 1000);
   });
 
   it('update() with serverTimestamp echoes a writeTime aligned with the stored field', async function () {
@@ -50,7 +44,7 @@ describe('Firestore serverTimestamp normalization (e2e)', () => {
     const writeResult = await ref.update({ ts: FieldValue.serverTimestamp() });
 
     const snap = await ref.get();
-    const storedTs = snap.data()?.ts as admin.firestore.Timestamp;
+    const storedTs = snap.data()?.ts as Timestamp;
     expect(storedTs).to.be.instanceOf(Timestamp);
 
     // commit_time and the stored field were both generated from the same
@@ -74,12 +68,12 @@ describe('Firestore serverTimestamp normalization (e2e)', () => {
   it('multiple writes produce monotonically non-decreasing timestamps', async function () {
     const ref = db.collection('st_mono').doc('d' + Date.now());
     await ref.set({ ts: FieldValue.serverTimestamp() });
-    const first = (await ref.get()).data()?.ts as admin.firestore.Timestamp;
+    const first = (await ref.get()).data()?.ts as Timestamp;
 
     await new Promise((r) => setTimeout(r, 10));
 
     await ref.update({ ts: FieldValue.serverTimestamp() });
-    const second = (await ref.get()).data()?.ts as admin.firestore.Timestamp;
+    const second = (await ref.get()).data()?.ts as Timestamp;
 
     expect(second.toMillis()).to.be.at.least(first.toMillis());
   });

@@ -3,14 +3,14 @@
  */
 
 import { expect } from 'chai';
-import * as admin from 'firebase-admin';
+import { Auth, getAuth } from 'firebase-admin/auth';
 import { getAdminApp, getAuthStorage } from '../_setup';
 
 describe('Firebase Auth deleteUser (e2e)', () => {
-  let auth: admin.auth.Auth;
+  let auth: Auth;
 
   before(function () {
-    auth = getAdminApp().auth();
+    auth = getAuth(getAdminApp());
   });
 
   it('deleteUser removes user; getUser throws', async function () {

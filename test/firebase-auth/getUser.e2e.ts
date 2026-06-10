@@ -3,14 +3,14 @@
  */
 
 import { expect } from 'chai';
-import * as admin from 'firebase-admin';
+import { Auth, getAuth } from 'firebase-admin/auth';
 import { getAdminApp } from '../_setup';
 
 describe('Firebase Auth getUser (e2e)', () => {
-  let auth: admin.auth.Auth;
+  let auth: Auth;
 
   before(function () {
-    auth = getAdminApp().auth();
+    auth = getAuth(getAdminApp());
   });
 
   it('getUserByEmail returns user after createUser', async function () {

@@ -4,13 +4,13 @@
  */
 
 import { expect } from 'chai';
-import * as admin from 'firebase-admin';
+import { Firestore, Timestamp } from 'firebase-admin/firestore';
 import { FirestoreStorage } from '../src/firestore/storage';
 import { fromFirestoreDocument } from '../src/firestore/utils';
 import { getFirestore, getFirestoreStorage } from './_setup';
 
 describe('Firestore Basic Services', () => {
-  let db: admin.firestore.Firestore;
+  let db: Firestore;
   const projectId = 'test-project';
   const databaseId = '(default)';
 
@@ -295,7 +295,7 @@ describe('Firestore Basic Services', () => {
       const docId = 'timestamp-test';
       const docRef = db.collection(collectionName).doc(docId);
 
-      const now = admin.firestore.Timestamp.now();
+      const now = Timestamp.now();
       const data = {
         timestamp: now,
       };
@@ -306,7 +306,7 @@ describe('Firestore Basic Services', () => {
       expect(doc.exists).to.be.true;
       const retrieved = doc.data();
 
-      expect(retrieved?.timestamp).to.be.instanceOf(admin.firestore.Timestamp);
+      expect(retrieved?.timestamp).to.be.instanceOf(Timestamp);
     });
 
     it('should handle nested arrays and objects', async function () {

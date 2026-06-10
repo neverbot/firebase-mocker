@@ -5,11 +5,11 @@
  */
 
 import { expect } from 'chai';
-import * as admin from 'firebase-admin';
+import { Firestore } from 'firebase-admin/firestore';
 import { getFirestore } from '../_setup';
 
 describe('Firestore Write (e2e)', () => {
-  let db: admin.firestore.Firestore;
+  let db: Firestore;
 
   before(function () {
     db = getFirestore();

@@ -4,12 +4,12 @@
  */
 
 import { expect } from 'chai';
-import * as admin from 'firebase-admin';
+import { Firestore } from 'firebase-admin/firestore';
 import { fromFirestoreDocument } from '../../src/firestore/utils';
 import { getFirestore, getFirestoreStorage } from '../_setup';
 
 describe('Firestore GetDocument (e2e)', () => {
-  let db: admin.firestore.Firestore;
+  let db: Firestore;
   const projectId = 'test-project';
   const databaseId = '(default)';
 
